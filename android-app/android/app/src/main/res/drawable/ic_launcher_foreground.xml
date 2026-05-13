@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Adaptive icon foreground: note page with a pen — scaled to ~70% of original.
+  Viewport 108×108dp — safe zone is the centre 72×72 (from 18,18 to 90,90).
+  All paths sit well within the safe zone. White on blue (#0090D4) background.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Note page (rounded rectangle, ~70% scale, centred at 54,54) -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="
+          M45,33
+          L63,33
+          C64.7,33 66,34.3 66,36
+          L66,75
+          C66,76.7 64.7,78 63,78
+          L45,78
+          C43.3,78 42,76.7 42,75
+          L42,36
+          C42,34.3 43.3,33 45,33
+          Z" />
+
+    <!-- Ruled lines (Nextcloud blue so they show against white) -->
+    <path
+        android:strokeColor="#0090D4"
+        android:strokeWidth="2"
+        android:strokeLineCap="round"
+        android:pathData="M46,43 L62,43" />
+    <path
+        android:strokeColor="#0090D4"
+        android:strokeWidth="2"
+        android:strokeLineCap="round"
+        android:pathData="M46,51 L62,51" />
+    <path
+        android:strokeColor="#0090D4"
+        android:strokeWidth="2"
+        android:strokeLineCap="round"
+        android:pathData="M46,59 L56,59" />
+
+    <!-- Pen body (diagonal, lower-right, ~70% scale) -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="
+          M64,58
+          L70,52
+          C71,51 71,50 70,49
+          L68,47
+          C67,46 66,46 65,47
+          L59,53
+          Z" />
+
+    <!-- Pen tip -->
+    <path
+        android:fillColor="#CCE9F6"
+        android:pathData="M59,53 L57,61 L65,59 Z" />
+
+    <!-- Pen tip point -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M57,61 L56,64 L60,62 Z" />
+
+</vector>

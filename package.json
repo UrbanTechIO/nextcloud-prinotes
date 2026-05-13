@@ -1,0 +1,29 @@
+{
+  "name": "prinotes",
+  "version": "1.0.0",
+  "description": "PriNotes - Rich note-taking for Nextcloud",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build"
+  },
+  "dependencies": {
+    "@nextcloud/auth": "^2.3.0",
+    "@nextcloud/axios": "^2.5.0",
+    "@nextcloud/initial-state": "^2.2.0",
+    "@nextcloud/l10n": "^3.1.0",
+    "@nextcloud/router": "^3.0.1",
+    "easymde": "^2.18.0",
+    "perfect-freehand": "^1.2.0",
+    "pinia": "^2.1.7",
+    "vue": "3.4.21",
+    "vue-material-design-icons": "^5.3.0",
+    "vue-router": "4.3.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^5.0.4",
+    "sass": "^1.70.0",
+    "terser": "^5.47.1",
+    "vite": "^5.1.0"
+  }
+}

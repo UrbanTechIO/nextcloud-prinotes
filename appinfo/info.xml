@@ -1,0 +1,68 @@
+<?xml version="1.0"?>
+<info xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:noNamespaceSchemaLocation="https://apps.nextcloud.com/schema/apps/info.xsd">
+    <id>prinotes</id>
+    <name>PriNotes</name>
+    <summary>Rich, private note-taking with offline Android sync</summary>
+    <description><![CDATA[
+PriNotes is a feature-rich, privacy-first note-taking application for Nextcloud that keeps your data on your own server.
+
+## Features
+
+**Web Editor**
+- Rich block editor: headings, paragraphs, lists, checklists, code blocks, quotes, dividers
+- Full-canvas freehand drawing support
+- Image attachments with resize and rotate
+- Per-note color coding
+- Pin important notes to the top
+
+**Organisation**
+- Notebooks — group notes into colour-coded collections
+- Tags — cross-notebook labels with colour support
+- Archive and Trash with restore and permanent delete
+- Full-text search across all notes
+
+**Security & Privacy**
+- Per-note PIN lock — content never exposed in search or previews when locked
+- App-wide PIN + biometric lock (Android)
+- Hidden notes vault — reveal a secret set of notes only with a private vault password
+- All data stays on your Nextcloud server — nothing leaves your infrastructure
+
+**Android App**
+- Native offline-first Android client with automatic background sync
+- Grid and list view with live preview
+- Works fully offline; syncs when connectivity is restored
+- Persistent view preferences
+
+## Android App Installation
+
+Download the latest APK from the [Releases page](https://github.com/UrbanTechIO/nextcloud-prinotes/releases) and sideload it:
+
+1. On your Android device go to **Settings → Apps → Special app access → Install unknown apps**
+2. Allow your browser or file manager to install APKs
+3. Open the downloaded `.apk` file and tap **Install**
+    ]]></description>
+    <version>1.0.0</version>
+    <licence>agpl</licence>
+    <author mail="support@urbantechsolutions.co.uk" homepage="https://github.com/UrbanTechIO">UrbanTechIO</author>
+    <namespace>PriNotes</namespace>
+    <category>organization</category>
+    <bugs>https://github.com/UrbanTechIO/nextcloud-prinotes/issues</bugs>
+    <repository>https://github.com/UrbanTechIO/nextcloud-prinotes</repository>
+    <screenshot>https://raw.githubusercontent.com/UrbanTechIO/nextcloud-prinotes/main/img/screenshots/web-editor.png</screenshot>
+    <dependencies>
+        <nextcloud min-version="25" max-version="33"/>
+        <php min-version="8.0"/>
+    </dependencies>
+    <navigations>
+        <navigation>
+            <name>PriNotes</name>
+            <route>prinotes.page.index</route>
+            <icon>app.svg</icon>
+            <order>10</order>
+        </navigation>
+    </navigations>
+    <background-jobs>
+        <job>OCA\PriNotes\BackgroundJob\SendRemindersJob</job>
+    </background-jobs>
+</info>

@@ -1,0 +1,34 @@
+# Node / Vue build
+node_modules/
+dist/
+
+# Android app build artifacts
+android-app/.dart_tool/
+android-app/.flutter-plugins
+android-app/.flutter-plugins-dependencies
+android-app/build/
+android-app/android/.gradle/
+android-app/android/app/debug/
+android-app/android/app/profile/
+android-app/android/local.properties
+android-app/android/key.properties
+android-app/ios/
+android-app/linux/
+android-app/macos/
+android-app/windows/
+android-app/web/
+android-app/*.g.dart
+android-app/lib/**/*.g.dart
+
+# Nextcloud
+data/
+config/config.php
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp

@@ -1,0 +1,165 @@
+// ── PriNotes UI primitives ─────────────────────────────────────────────────
+
+// Buttons
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-radius: var(--border-radius, 6px);
+  border: 1px solid var(--color-border);
+  background: var(--color-main-background);
+  color: var(--color-main-text);
+  font-size: 0.88rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, box-shadow 0.15s;
+  white-space: nowrap;
+
+  &:hover { background: var(--color-background-hover); }
+  &:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  &.btn-primary {
+    background: var(--color-primary-element, #0082c9);
+    color: var(--color-primary-element-text, #fff);
+    border-color: transparent;
+    &:hover { background: var(--color-primary-element-hover, #006fa3); }
+  }
+
+  &.btn-error {
+    background: var(--color-error, #e9322d);
+    color: #fff;
+    border-color: transparent;
+    &:hover { background: #c82020; }
+  }
+
+  &.btn-icon {
+    padding: 7px;
+    border-radius: 50%;
+  }
+
+  &.active {
+    background: var(--color-primary-light, #dbedff);
+    color: var(--color-primary-element, #0082c9);
+    border-color: var(--color-primary-element-light, #7fbfe8);
+  }
+}
+
+// Text inputs
+.p-input {
+  display: block;
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius, 6px);
+  background: var(--color-main-background);
+  color: var(--color-main-text);
+  font-size: 0.9rem;
+  transition: border-color 0.15s;
+
+  &:focus {
+    outline: none;
+    border-color: var(--color-primary-element, #0082c9);
+  }
+}
+
+// Select
+.p-select {
+  padding: 7px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius, 6px);
+  background: var(--color-main-background);
+  color: var(--color-main-text);
+  font-size: 0.88rem;
+  cursor: pointer;
+}
+
+// Spinner
+.p-spinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid var(--color-border);
+  border-top-color: var(--color-primary-element, #0082c9);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+// Toggle switch
+.p-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  user-select: none;
+
+  input[type="checkbox"] {
+    width: 36px;
+    height: 20px;
+    appearance: none;
+    background: var(--color-border);
+    border-radius: 10px;
+    cursor: pointer;
+    position: relative;
+    transition: background 0.2s;
+
+    &::after {
+      content: '';
+      position: absolute;
+      top: 2px;
+      left: 2px;
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: #fff;
+      transition: transform 0.2s;
+    }
+
+    &:checked {
+      background: var(--color-primary-element, #0082c9);
+      &::after { transform: translateX(16px); }
+    }
+  }
+}
+
+// app-content wrapper used in views
+.app-content {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+// Force full-width — override any Nextcloud container centering/max-width
+#app-content {
+  max-width: none !important;
+  width: 100% !important;
+}
+
+#prinotes-content {
+  width: 100% !important;
+  max-width: none !important;
+  flex: 1 !important;
+  box-sizing: border-box !important;
+}
+
+// Force LTR on all editor inputs — overrides Nextcloud's global RTL
+#prinotes-content {
+  [contenteditable]:not([dir="rtl"]),
+  input:not([dir="rtl"]),
+  textarea:not([dir="rtl"]) {
+    direction: ltr !important;
+    unicode-bidi: isolate !important;
+    text-align: left;
+  }
+  [contenteditable][dir="rtl"],
+  input[dir="rtl"],
+  textarea[dir="rtl"] {
+    direction: rtl !important;
+    unicode-bidi: isolate !important;
+    text-align: right;
+  }
+}

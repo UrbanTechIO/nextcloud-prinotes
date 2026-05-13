@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <!-- Vertical gradient: white at top → mid-grey at bottom, like Nextcloud's monochrome icons -->
+    <linearGradient id="grad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%"   stop-color="#ffffff"/>
+      <stop offset="100%" stop-color="#8a8a8a"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Note page body — semi-transparent fill + bold outline -->
+  <rect x="9" y="5" width="36" height="46" rx="4" ry="4"
+        fill="url(#grad)" fill-opacity="0.18"/>
+  <rect x="9" y="5" width="36" height="46" rx="4" ry="4"
+        fill="none" stroke="url(#grad)" stroke-width="3.2" stroke-linejoin="round"/>
+
+  <!-- Ruled lines — slightly thicker for visibility -->
+  <line x1="15" y1="17" x2="39" y2="17" stroke="url(#grad)" stroke-width="2.4" stroke-linecap="round"/>
+  <line x1="15" y1="25" x2="39" y2="25" stroke="url(#grad)" stroke-width="2.4" stroke-linecap="round"/>
+  <line x1="15" y1="33" x2="29" y2="33" stroke="url(#grad)" stroke-width="2.4" stroke-linecap="round"/>
+
+  <!-- Pen body — rotated rect, bold outline -->
+  <rect x="36" y="32" width="8" height="23" rx="2.5" ry="2.5"
+        fill="url(#grad)" fill-opacity="0.6"
+        stroke="url(#grad)" stroke-width="1.8"
+        transform="rotate(-45 40 43.5)"/>
+
+  <!-- Pen tip triangle -->
+  <polygon points="46,51 50,55 44,58"
+           fill="url(#grad)"
+           stroke="url(#grad)" stroke-width="1.2" stroke-linejoin="round"/>
+</svg>
