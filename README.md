@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="img/screenshots/hero.png" alt="PriNotes — Private notes for Nextcloud" width="720" />
+</p>
+
 # PriNotes — Rich Note-Taking for Nextcloud
 
 **PriNotes** is a privacy-first, feature-rich note-taking app that runs entirely on your own Nextcloud server. Your notes never touch a third-party cloud.
@@ -20,7 +24,19 @@
 
 ## Screenshots
 
-> Screenshots coming soon.
+### Web
+
+| All notes | Editor | Drawing canvas |
+|:---:|:---:|:---:|
+| ![Web — all notes](img/screenshots/web-all-notes.png) | ![Web — editor](img/screenshots/web-editor.png) | ![Web — drawing](img/screenshots/web-drawing.png) |
+
+### Android
+
+| Notes grid | Security |
+|:---:|:---:|
+| <img src="img/screenshots/mobile-notes.jpg" alt="Mobile — notes grid" width="320" /> | <img src="img/screenshots/mobile-security.jpg" alt="Mobile — security" width="320" /> |
+
+> Some text in these screenshots is intentionally blurred to keep personal account and note titles private.
 
 ---
 
