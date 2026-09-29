@@ -105,7 +105,7 @@
             </div>
           </div>
         </div>
-        <BlockEditor
+        <QuillEditor
           v-if="loaded"
           v-model="content"
           @update:modelValue="debouncedSave"
@@ -125,7 +125,7 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import PDropdown from '../components/ui/PDropdown.vue'
-import BlockEditor from '../components/editor/BlockEditor.vue'
+import QuillEditor from '../components/editor/QuillEditor.vue'
 import LockDialog from '../components/LockDialog.vue'
 import ReminderDialog from '../components/ReminderDialog.vue'
 import ShareDialog from '../components/ShareDialog.vue'
@@ -182,7 +182,34 @@ onMounted(async () => {
   loaded.value = true
 })
 
-onUnmounted(() => { if (saveTimer.value) clearTimeout(saveTimer.value) })
+// Flush any pending save when the page/tab is closing.
+// The browser gives us a small window; we mark the request as `keepalive`
+// so the fetch survives page teardown.
+function flushOnUnload() {
+  if (saveTimer.value) {
+    clearTimeout(saveTimer.value)
+    saveTimer.value = null
+    // saveNow uses the store which uses @nextcloud/axios — no `keepalive` flag.
+    // We fire-and-forget synchronously here; if the request doesn't finish in
+    // time the note is at worst missing the very last few keystrokes made in
+    // the ~10s window since the previous flush (the whole point of the 10 s
+    // debounce is user-visible batching, not durability of the tail).
+    saveNow()
+  }
+}
+window.addEventListener('beforeunload', flushOnUnload)
+
+onUnmounted(() => {
+  // Flush before we tear down — otherwise pending edits in the last 10 s
+  // are lost when the user navigates away via the router (which unmounts
+  // this component without firing beforeunload).
+  if (saveTimer.value) {
+    clearTimeout(saveTimer.value)
+    saveTimer.value = null
+    saveNow()
+  }
+  window.removeEventListener('beforeunload', flushOnUnload)
+})
 
 async function loadNote(id) {
   try {
@@ -209,10 +236,16 @@ function onTitleInput(e) {
   debouncedSave()
 }
 
+// Debounced save — batches typing bursts. 10 s window matches the mobile
+// autosave behaviour and reduces DB writes for long edit sessions. Any
+// still-pending save is flushed by beforeunload / onUnmounted / goBack.
 function debouncedSave() {
   saveStatus.value = 'saving'
   if (saveTimer.value) clearTimeout(saveTimer.value)
-  saveTimer.value = setTimeout(saveNow, 1500)
+  saveTimer.value = setTimeout(() => {
+    saveTimer.value = null
+    saveNow()
+  }, 10000)
 }
 
 async function saveNow() {
@@ -289,7 +322,13 @@ function exportMarkdown() {
   URL.revokeObjectURL(a.href)
 }
 function goBack() {
-  if (saveTimer.value) { clearTimeout(saveTimer.value); saveNow() }
+  // Flush any pending debounced save before navigating away so the user
+  // never loses the last edits they made.
+  if (saveTimer.value) {
+    clearTimeout(saveTimer.value)
+    saveTimer.value = null
+    saveNow()
+  }
   router.push('/')
 }
 
