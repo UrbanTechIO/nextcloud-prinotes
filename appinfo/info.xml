@@ -42,7 +42,7 @@ Download the latest APK from the [Releases page](https://github.com/UrbanTechIO/
 2. Allow your browser or file manager to install APKs
 3. Open the downloaded `.apk` file and tap **Install**
     ]]></description>
-    <version>1.0.4</version>
+    <version>1.1.0</version>
     <licence>agpl</licence>
     <author mail="support@urbantechsolutions.co.uk" homepage="https://github.com/UrbanTechIO">UrbanTechIO</author>
     <namespace>PriNotes</namespace>
