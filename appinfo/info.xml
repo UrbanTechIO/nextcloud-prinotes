@@ -42,17 +42,22 @@ Download the latest APK from the [Releases page](https://github.com/UrbanTechIO/
 2. Allow your browser or file manager to install APKs
 3. Open the downloaded `.apk` file and tap **Install**
     ]]></description>
-    <version>1.0.0</version>
+    <version>1.0.4</version>
     <licence>agpl</licence>
     <author mail="support@urbantechsolutions.co.uk" homepage="https://github.com/UrbanTechIO">UrbanTechIO</author>
     <namespace>PriNotes</namespace>
     <category>organization</category>
     <bugs>https://github.com/UrbanTechIO/nextcloud-prinotes/issues</bugs>
     <repository>https://github.com/UrbanTechIO/nextcloud-prinotes</repository>
+    <screenshot>https://raw.githubusercontent.com/UrbanTechIO/nextcloud-prinotes/main/img/screenshots/hero.png</screenshot>
+    <screenshot>https://raw.githubusercontent.com/UrbanTechIO/nextcloud-prinotes/main/img/screenshots/web-all-notes.png</screenshot>
     <screenshot>https://raw.githubusercontent.com/UrbanTechIO/nextcloud-prinotes/main/img/screenshots/web-editor.png</screenshot>
+    <screenshot>https://raw.githubusercontent.com/UrbanTechIO/nextcloud-prinotes/main/img/screenshots/web-drawing.png</screenshot>
+    <screenshot>https://raw.githubusercontent.com/UrbanTechIO/nextcloud-prinotes/main/img/screenshots/mobile-notes.jpg</screenshot>
+    <screenshot>https://raw.githubusercontent.com/UrbanTechIO/nextcloud-prinotes/main/img/screenshots/mobile-security.jpg</screenshot>
     <dependencies>
-        <nextcloud min-version="25" max-version="33"/>
-        <php min-version="8.0"/>
+        <nextcloud min-version="25" max-version="35"/>
+        <php min-version="8.1"/>
     </dependencies>
     <navigations>
         <navigation>
