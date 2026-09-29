@@ -23,6 +23,16 @@ export default defineConfig({
     rollupOptions: {
       input: { 'prinotes-main': path.resolve(__dirname, 'src/main.js') },
       output: {
+        // IIFE so the bundle runs under Nextcloud's classic <script> tag.
+        // Vite's default is ES modules, which append `export default …` at
+        // the tail — that yields "SyntaxError: Unexpected token 'export'"
+        // when the file is included non-module. IIFE self-executes and needs
+        // no `<script type="module">`.
+        format: 'iife',
+        // IIFE requires a global name; nothing external reads it, but rollup
+        // insists we name it.
+        name: 'PriNotesApp',
+        inlineDynamicImports: true,        // IIFE cannot code-split; inline any dynamic imports
         entryFileNames: 'js/[name].js',
         chunkFileNames: 'js/chunks/[name]-[hash].js',
         assetFileNames: (assetInfo) => {

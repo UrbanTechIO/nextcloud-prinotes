@@ -422,6 +422,11 @@ watch(() => props.modelValue, (val) => {
 }
 
 :deep(.ql-editor) {
+  // Quill's default snow.css leaves .ql-editor with no explicit width and
+  // its overflow-y:auto makes some browsers collapse it to intrinsic width
+  // inside a flex parent — force full-width fill instead.
+  width: 100%;
+  box-sizing: border-box;
   min-height: 300px;
   color: var(--color-main-text);
   line-height: 1.5;
