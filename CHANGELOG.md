@@ -2,6 +2,16 @@
 
 All notable changes to PriNotes are documented here.
 
+## [1.1.3] – 2026-10-11
+
+### Fixed
+- Sharing a note failed with HTTP 500 on PostgreSQL (`null value in column "share_type"`). `Share::$shareType` defaulted to `'user'`, so Nextcloud's `Entity::setter()` treated `setShareType('user')` as unchanged and left the column out of the INSERT. Defaults are now `null` so the value is always written. (#2)
+
+## [1.0.3] – 2026-08-10
+
+### Fixed
+- App store release signing used the wrong RSA padding scheme (PKCS1v15 instead of PSS with SHA-1 digest / SHA-512 MGF1, salt length 0), causing every published release to fail Nextcloud's code signature check with `InvalidSignatureException: Signature could not get verified.`. Releases are now signed correctly.
+
 ## [1.0.0] – 2026-05-13
 
 ### Added
