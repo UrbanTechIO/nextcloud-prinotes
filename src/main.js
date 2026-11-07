@@ -8,7 +8,9 @@ import NoteList from './views/NoteList.vue'
 import NoteEditor from './views/NoteEditor.vue'
 import Settings from './views/Settings.vue'
 import TrashView from './views/TrashView.vue'
+import TodoView from './views/TodoView.vue'
 import { useNotesStore } from './stores/notes.js'
+import { useTodosStore } from './stores/todos.js'
 
 const pinia = createPinia()
 
@@ -20,6 +22,8 @@ const router = createRouter({
     { path: '/note/new', component: NoteEditor },
     { path: '/settings', component: Settings },
     { path: '/trash', component: TrashView },
+    { path: '/todo', component: TodoView },
+    { path: '/todo/:view', component: TodoView },
   ],
 })
 
@@ -38,3 +42,4 @@ if (contentEl) {
 // Bootstrap data — call after both apps mounted, pass pinia to use outside component
 const store = useNotesStore(pinia)
 store.init()
+useTodosStore(pinia).init()

@@ -31,6 +31,18 @@ return [
         ['name' => 'tag_api#update',  'url' => '/api/tags/{id}',                'verb' => 'PUT'],
         ['name' => 'tag_api#destroy', 'url' => '/api/tags/{id}',                'verb' => 'DELETE'],
 
+        // To-Do lists (categories) API
+        ['name' => 'todo_list_api#index',   'url' => '/api/todo-lists',          'verb' => 'GET'],
+        ['name' => 'todo_list_api#create',  'url' => '/api/todo-lists',          'verb' => 'POST'],
+        ['name' => 'todo_list_api#update',  'url' => '/api/todo-lists/{id}',     'verb' => 'PUT'],
+        ['name' => 'todo_list_api#destroy', 'url' => '/api/todo-lists/{id}',     'verb' => 'DELETE'],
+
+        // To-Do tasks API
+        ['name' => 'todo_api#index',   'url' => '/api/todos',                    'verb' => 'GET'],
+        ['name' => 'todo_api#create',  'url' => '/api/todos',                    'verb' => 'POST'],
+        ['name' => 'todo_api#update',  'url' => '/api/todos/{id}',               'verb' => 'PUT'],
+        ['name' => 'todo_api#destroy', 'url' => '/api/todos/{id}',               'verb' => 'DELETE'],
+
         // Reminders API
         ['name' => 'reminder_api#index',   'url' => '/api/reminders',           'verb' => 'GET'],
         ['name' => 'reminder_api#create',  'url' => '/api/reminders',           'verb' => 'POST'],

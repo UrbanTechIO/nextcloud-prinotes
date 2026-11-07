@@ -8,6 +8,8 @@ use OCA\PriNotes\Service\NoteService;
 use OCA\PriNotes\Service\NotebookService;
 use OCA\PriNotes\Service\TagService;
 use OCA\PriNotes\Service\ReminderService;
+use OCA\PriNotes\Service\TodoListService;
+use OCA\PriNotes\Service\TodoService;
 use OCP\AppFramework\Http\DataResponse;
 use OCP\AppFramework\OCSController;
 use OCP\IRequest;
@@ -25,6 +27,8 @@ class SyncApiController extends OCSController {
         private NotebookService $notebookService,
         private TagService      $tagService,
         private ReminderService $reminderService,
+        private TodoListService $todoListService,
+        private TodoService    $todoService,
         private ?string         $userId,
     ) {
         parent::__construct($appName, $request);
@@ -53,6 +57,20 @@ class SyncApiController extends OCSController {
         $reminders = [];
         try { $reminders = $this->reminderService->getAll($this->userId); } catch (\Throwable $e) {}
 
+        // To-Do data is isolated like the other non-critical data: a failure here never blocks notes.
+        $todoLists = [];
+        $todos = [];
+        $allTodoIds = null;
+        try {
+            $todoLists  = $this->todoListService->getAll($this->userId);
+            $todos      = $this->todoService->getUpdatedSince($this->userId, $since);
+            $allTodoIds = $this->todoService->getAllIds($this->userId);
+        } catch (\Throwable $e) {
+            $todoLists = [];
+            $todos = [];
+            $allTodoIds = null;
+        }
+
         return new DataResponse([
             'serverTime' => time(),
             'notes'      => $notes,
@@ -60,6 +78,9 @@ class SyncApiController extends OCSController {
             'notebooks'  => $notebooks,
             'tags'       => $tags,
             'reminders'  => $reminders,
+            'todoLists'  => $todoLists,
+            'todos'      => $todos,
+            'allTodoIds' => $allTodoIds,
         ]);
     }
 
@@ -132,6 +153,45 @@ class SyncApiController extends OCSController {
                 $this->tagService->delete((int)$id, $this->userId);
             } catch (\Throwable) {
                 // already gone — ignore
+            }
+        }
+
+        // To-Do lists, then tasks (a task may reference a list pushed in this same batch),
+        // then deletions. Each item is isolated; nothing here can fail the note sync above.
+        $results['todoLists'] = [];
+        $results['todos'] = [];
+        foreach ($body['todoLists'] ?? [] as $list) {
+            try {
+                if (!empty($list['id']) && $list['id'] > 0) {
+                    $results['todoLists'][] = $this->todoListService->update((int)$list['id'], $this->userId, $list);
+                } else {
+                    $results['todoLists'][] = $this->todoListService->create($this->userId, $list);
+                }
+            } catch (\Throwable $e) {
+                $results['errors'][] = ['entity' => 'todoList', 'data' => ['id' => $list['id'] ?? null], 'error' => $e->getMessage()];
+            }
+        }
+        foreach ($body['todos'] ?? [] as $todo) {
+            try {
+                if (!empty($todo['id']) && $todo['id'] > 0) {
+                    $results['todos'][] = $this->todoService->update((int)$todo['id'], $this->userId, $todo);
+                } else {
+                    $results['todos'][] = $this->todoService->create($this->userId, $todo);
+                }
+            } catch (\Throwable $e) {
+                $results['errors'][] = ['entity' => 'todo', 'data' => ['id' => $todo['id'] ?? null], 'error' => $e->getMessage()];
+            }
+        }
+        foreach ($body['deletedTodoIds'] ?? [] as $id) {
+            try {
+                $this->todoService->delete((int)$id, $this->userId);
+            } catch (\Throwable) {
+            }
+        }
+        foreach ($body['deletedTodoListIds'] ?? [] as $id) {
+            try {
+                $this->todoListService->delete((int)$id, $this->userId);
+            } catch (\Throwable) {
             }
         }
 

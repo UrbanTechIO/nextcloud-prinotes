@@ -2,6 +2,21 @@
 
 All notable changes to PriNotes are documented here.
 
+## [1.2.1] – 2026-11-07
+
+### Added
+- **To-Do lists** (web and Android), in the side menu above Trash. Categories with sub-categories, smart lists (Today, Important, Planned, All tasks), due dates, reminders, repeating tasks (daily, weekdays, weekly, monthly, yearly), steps, notes and a star for important tasks. Finished tasks collapse into a "Finished" group under the same category.
+- To-Dos use the same sync as notes (`/api/sync/pull` and `/api/sync/push`), so web and phone stay in step. The server creates the next occurrence of a repeating task when it is completed.
+- Reminders: Nextcloud notification from a background job (every minute), and local alarms with Done / Snooze actions on Android.
+- Android home-screen widgets (medium and large) that show to-dos from any mix of lists, let you tick tasks and add new ones.
+- Android: bulk select (long-press), bulk finish and bulk delete with Undo, and a compact "Add a task" bar like Microsoft To-Do.
+
+### Changed
+- Database: two new tables, `prinotes_todo_lists` and `prinotes_todos` (additive migration; existing notes are untouched).
+
+### Fixed
+- Check circles in the To-Do list were stretched into ovals by Nextcloud's default button sizing.
+
 ## [1.1.3] – 2026-10-11
 
 ### Fixed

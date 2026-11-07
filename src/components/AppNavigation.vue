@@ -15,7 +15,7 @@
       <!-- All Notes -->
       <li
         class="nav-item"
-        :class="{ active: !store.activeNotebookId && !store.activeTagId && !store.showTrash && !store.showArchived }"
+        :class="{ active: !onTodo && !store.activeNotebookId && !store.activeTagId && !store.showTrash && !store.showArchived }"
         @click="selectAll"
       >
         <NoteMultiple :size="18" />
@@ -24,13 +24,20 @@
       </li>
 
       <!-- Archived -->
-      <li class="nav-item" :class="{ active: store.showArchived }" @click="selectArchived">
+      <li class="nav-item" :class="{ active: store.showArchived && !onTodo }" @click="selectArchived">
         <Archive :size="18" />
         <span>Archived</span>
       </li>
 
+      <!-- To-Do -->
+      <li class="nav-item" :class="{ active: onTodo }" @click="goTodo('today')">
+        <CheckboxMarkedCircleOutline :size="18" />
+        <span>To-Do</span>
+        <span class="nav-counter">{{ todos.openCount('all') }}</span>
+      </li>
+
       <!-- Trash -->
-      <li class="nav-item" :class="{ active: store.showTrash }" @click="selectTrash">
+      <li class="nav-item" :class="{ active: store.showTrash && !onTodo }" @click="selectTrash">
         <Delete :size="18" />
         <span>Trash</span>
       </li>
@@ -90,6 +97,42 @@
       </ul>
     </div>
 
+    <!-- To-Do lists -->
+    <div class="nav-section">
+      <div class="nav-section-header" @click="todoOpen = !todoOpen">
+        <CheckboxMarkedCircleOutline :size="16" />
+        <span>To-Do lists</span>
+        <button class="btn btn-icon nav-add-btn" @click.stop="openNewTodoList(null)" title="New category">
+          <Plus :size="14" />
+        </button>
+        <ChevronDown :size="14" :class="{ rotated: !todoOpen }" class="nav-chevron" />
+      </div>
+      <ul v-if="todoOpen" class="nav-sublist">
+        <li v-for="s in smartLists" :key="s.key" class="nav-item nav-subitem"
+          :class="{ active: onTodo && todos.activeView === s.key }" @click="goTodo(s.key)">
+          <div class="color-dot" :style="{ background: s.color }" />
+          <span class="flex-1">{{ s.label }}</span>
+          <span class="nav-counter">{{ todos.openCount(s.key) }}</span>
+        </li>
+        <template v-for="l in todos.tree" :key="l.id">
+          <li class="nav-item nav-subitem" :class="{ active: onTodo && todos.activeView === l.id }" @click="goTodo(l.id)">
+            <div class="color-dot" :style="{ background: l.color || '#6b7280' }" />
+            <span class="flex-1">{{ l.title }}</span>
+            <button v-if="!l.isSystem" class="nav-action-btn" @click.stop="openNewTodoList(l.id)" title="New sub-category"><Plus :size="13" /></button>
+            <button class="nav-action-btn" @click.stop="editTodoList(l)" title="Edit"><Pencil :size="13" /></button>
+            <span class="nav-counter">{{ todos.openCount(l.id) }}</span>
+          </li>
+          <li v-for="c in l.children" :key="c.id" class="nav-item nav-subitem nav-subsub"
+            :class="{ active: onTodo && todos.activeView === c.id }" @click="goTodo(c.id)">
+            <div class="color-dot" :style="{ background: c.color || l.color || '#6b7280' }" />
+            <span class="flex-1">{{ c.title }}</span>
+            <button class="nav-action-btn" @click.stop="editTodoList(c)" title="Edit"><Pencil :size="13" /></button>
+            <span class="nav-counter">{{ todos.openCount(c.id) }}</span>
+          </li>
+        </template>
+      </ul>
+    </div>
+
     <!-- Settings -->
     <div class="nav-footer">
       <button class="btn nav-settings-btn" @click="$router.push('/settings')">
@@ -107,6 +150,11 @@
   <PModal v-if="showNewTag" title="Tag" @close="closeTag">
     <TagForm :tag="editingTag" @saved="onTagSaved" @cancel="closeTag" />
   </PModal>
+
+  <!-- To-Do category modal -->
+  <PModal v-if="showTodoList" :title="editingTodoList ? 'Edit category' : 'New category'" @close="closeTodoList">
+    <TodoListForm :list="editingTodoList" :parent-id="newTodoParent" @saved="closeTodoList" @cancel="closeTodoList" />
+  </PModal>
 </template>
 
 <script setup>
@@ -120,14 +168,35 @@ import Plus from 'vue-material-design-icons/Plus.vue'
 import Pencil from 'vue-material-design-icons/Pencil.vue'
 import ChevronDown from 'vue-material-design-icons/ChevronDown.vue'
 import Cog from 'vue-material-design-icons/Cog.vue'
+import CheckboxMarkedCircleOutline from 'vue-material-design-icons/CheckboxMarkedCircleOutline.vue'
 import PModal from './ui/PModal.vue'
 import NotebookForm from './NotebookForm.vue'
 import TagForm from './TagForm.vue'
+import TodoListForm from './TodoListForm.vue'
 import { useNotesStore } from '../stores/notes.js'
-import { useRouter } from 'vue-router'
+import { useTodosStore } from '../stores/todos.js'
+import { useRouter, useRoute } from 'vue-router'
 
 const store = useNotesStore()
+const todos = useTodosStore()
 const router = useRouter()
+const route = useRoute()
+
+const onTodo = computed(() => route.path.startsWith('/todo'))
+const todoOpen = ref(true)
+const showTodoList = ref(false)
+const editingTodoList = ref(null)
+const newTodoParent = ref(null)
+const smartLists = [
+  { key: 'today', label: 'Today', color: '#8b5cf6' },
+  { key: 'important', label: 'Important', color: '#f59e0b' },
+  { key: 'planned', label: 'Planned', color: '#22c55e' },
+  { key: 'all', label: 'All tasks', color: '#6b7280' },
+]
+function goTodo(view) { todos.activeView = view; router.push(`/todo/${view}`) }
+function openNewTodoList(parentId) { editingTodoList.value = null; newTodoParent.value = parentId; showTodoList.value = true }
+function editTodoList(l) { editingTodoList.value = l; newTodoParent.value = null; showTodoList.value = true }
+function closeTodoList() { showTodoList.value = false; editingTodoList.value = null; newTodoParent.value = null }
 
 const notebooksOpen = ref(true)
 const tagsOpen = ref(true)
@@ -277,6 +346,8 @@ async function onTagSaved() { await store.fetchTags(); closeTag() }
 
   &:hover .nav-action-btn { display: flex; }
 }
+
+.nav-subsub { padding-left: 34px; }
 
 .flex-1 { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
