@@ -3,6 +3,10 @@
     <!-- Toolbar (Quill binds by CSS ID) -->
     <div :id="'ql-toolbar-' + uid" class="ql-toolbar-row">
       <span class="ql-formats">
+        <button type="button" class="pn-undo" title="Undo (Ctrl+Z)" aria-label="Undo" :disabled="!canUndo" @click="undo">↶</button>
+        <button type="button" class="pn-redo" title="Redo (Ctrl+Y)" aria-label="Redo" :disabled="!canRedo" @click="redo">↷</button>
+      </span>
+      <span class="ql-formats">
         <select class="ql-header" title="Text style">
           <option value="1">H1</option>
           <option value="2">H2</option>
@@ -101,7 +105,7 @@ import DrawingCanvas from './DrawingCanvas.vue'
 const props = defineProps({
   modelValue: { type: String, default: '' },
 })
-const emit = defineEmits(['update:modelValue'])
+const emit = defineEmits(['update:modelValue', 'ready'])
 
 const uid = Math.random().toString(36).slice(2, 10)
 let quill = null
@@ -327,6 +331,19 @@ function onDrawingSave({ dataUrl }) {
   quill.setSelection(range.index + 1, 0, Quill.sources.SILENT)
 }
 
+// ── Undo / Redo ───────────────────────────────────────────────────────────
+// Quill's history module records typing, deleting, formatting and image/divider embeds, so one stack
+// covers everything the user can do in the note body. Ctrl+Z / Ctrl+Y keep working through the same stack.
+const canUndo = ref(false)
+const canRedo = ref(false)
+function syncHistory() {
+  const h = quill?.history
+  canUndo.value = !!h && h.stack.undo.length > 0
+  canRedo.value = !!h && h.stack.redo.length > 0
+}
+function undo() { quill?.history.undo(); syncHistory() }
+function redo() { quill?.history.redo(); syncHistory() }
+
 // ── Load content into Quill ───────────────────────────────────────────────
 function loadIntoQuill(raw) {
   const { delta, images, strokes } = parseIncoming(raw)
@@ -358,6 +375,13 @@ onMounted(() => {
   })
 
   loadIntoQuill(props.modelValue)
+  // Tell the page what the loaded note looks like when this editor writes it out, so it can tell later
+  // whether anything really changed.
+  emit('ready', serialize())
+
+  // Keep the Undo / Redo buttons in step with Quill's history stack
+  quill.on('editor-change', syncHistory)
+  syncHistory()
 
   quill.on('text-change', () => {
     // Skip our own programmatic writes (setContents on load)
@@ -396,6 +420,11 @@ watch(() => props.modelValue, (val) => {
   background: var(--color-main-background) !important;
   flex-shrink: 0;
 }
+
+.pn-undo[disabled],
+.pn-redo[disabled] { opacity: 0.35; cursor: default; }
+:deep(.pn-undo),
+:deep(.pn-redo) { font-size: 1.1rem; line-height: 1; }
 
 // Custom draw & divider buttons — Quill's built-in buttons all use ::before
 // for icons; keep ours simple with unicode

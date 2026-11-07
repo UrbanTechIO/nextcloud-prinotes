@@ -2,6 +2,27 @@
 
 All notable changes to PriNotes are documented here.
 
+## [1.2.3] – 2026-11-07
+
+### Added
+- **Undo and Redo** buttons in the note editor (web and Android). They step through typing, deleting, formatting and added or removed images. Android keeps 100 steps and the web 200; edits typed within about half a second merge into one step.
+- **Save on an interval instead of on every edit.** A note is saved at most 60 seconds after its first unsaved change, and right away when you leave the editor, the app goes to the background, or the browser tab is hidden or closed. The editor shows "Unsaved" or "Saved", and has a Save now button (Ctrl+S on the web).
+- A note that ends up identical to its last saved version (for example text typed and then undone) is not rewritten, so its modified time and its place in the list do not change.
+
+- **Android: Theme setting** with Classic (default), Frosted Glass and Liquid Glass. The glass themes apply to notes, To-Do, the side menus and Settings, with sliders for header and card opacity.
+- **Android: backgrounds for the glass themes.** Seven built-in backgrounds (Aurora, Sunset, Forest, Ocean, Rose, Ember, Graphite) and "Add photo" to use your own picture.
+- Android: the search bar is now an icon in the header that slides open over the other icons.
+- Android: new app icon.
+
+### Changed
+- Android: Settings now shows the real app version.
+
+### Fixed
+- Android: opening Settings or going back drew the old and new screen on top of each other for a moment in the glass themes.
+- Android: the release build could crash at start-up (reminder boot receiver, minified build).
+- Sync: when the server could not read To-Do data, `/api/sync/pull` returned an empty category list, which made the Android app delete all its local categories. It now returns `null` ("unknown") and clients keep what they have.
+- Sync: a task added to a category that was created offline was filed under Inbox. The push now carries the new category's `clientId` and the server maps it to the created category.
+
 ## [1.2.1] – 2026-11-07
 
 ### Added

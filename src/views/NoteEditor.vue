@@ -34,6 +34,10 @@
       </button>
       <div class="toolbar-spacer" />
       <span class="save-status" :class="saveStatus">{{ saveStatusText }}</span>
+      <button class="toolbar-btn" :class="{ active: saveStatus === 'unsaved' || saveStatus === 'error' }" :disabled="saveStatus === 'saved' || saveStatus === 'saving'"
+        @click="saver.flush()" title="Save now (Ctrl+S)">
+        <ContentSave :size="16" /><span>Save</span>
+      </button>
       <div class="toolbar-sep" />
       <button class="toolbar-btn danger" @click="deleteNote" title="Move to Trash">
         <Delete :size="16" /><span>Trash</span>
@@ -88,7 +92,7 @@
             @input="onTitleInput"
           />
           <div class="title-meta">
-            <select v-model="selectedNotebook" class="nb-select" @change="debouncedSave">
+            <select v-model="selectedNotebook" class="nb-select" @change="markChanged">
               <option :value="null">No notebook</option>
               <option v-for="nb in store.notebooks" :key="nb.id" :value="nb.id">{{ nb.title }}</option>
             </select>
@@ -108,7 +112,8 @@
         <QuillEditor
           v-if="loaded"
           v-model="content"
-          @update:modelValue="debouncedSave"
+          @update:modelValue="markChanged"
+          @ready="onEditorReady"
         />
       </div>
     </div>
@@ -141,7 +146,9 @@ import FileDocument from 'vue-material-design-icons/FileDocument.vue'
 import Palette from 'vue-material-design-icons/Palette.vue'
 import Delete from 'vue-material-design-icons/Delete.vue'
 import BookOpen from 'vue-material-design-icons/BookOpen.vue'
+import ContentSave from 'vue-material-design-icons/ContentSave.vue'
 import { useNotesStore } from '../stores/notes.js'
+import { createAutoSaver } from '../composables/autoSave.js'
 
 const route = useRoute()
 const router = useRouter()
@@ -160,14 +167,17 @@ const showLock = ref(false)
 const showReminder = ref(false)
 const showShare = ref(false)
 const showVersions = ref(false)
-const saveTimer = ref(null)
+// Unsaved changes are written at most once a minute while editing, and right away when the user leaves the
+// editor or the tab. Nothing is saved on every keystroke.
+const SAVE_INTERVAL_MS = 60_000
+const saver = createAutoSaver({ interval: SAVE_INTERVAL_MS, save: persist, snapshot })
 const loaded = ref(false)
 const lockedGate = ref(false)
 const gatePIN = ref('')
 const gateError = ref('')
 
 const availableTags = computed(() => store.tags.filter(t => !noteTags.value.find(nt => nt.id === t.id)))
-const saveStatusText = computed(() => ({ saving: 'Saving...', error: 'Save failed', saved: 'Saved' }[saveStatus.value] ?? 'Saved'))
+const saveStatusText = computed(() => ({ saving: 'Saving...', error: 'Save failed', saved: 'Saved', unsaved: 'Unsaved changes' }[saveStatus.value] ?? 'Saved'))
 const noteBodyStyle = computed(() => noteColor.value ? { background: noteColor.value + '20' } : {})
 const colorPalette = ['#fef3c7','#fce7f3','#ede9fe','#dbeafe','#d1fae5','#fee2e2','#e0f2fe','#f0fdf4','#fdf4ff','#fff7ed']
 
@@ -182,33 +192,35 @@ onMounted(async () => {
   loaded.value = true
 })
 
-// Flush any pending save when the page/tab is closing.
-// The browser gives us a small window; we mark the request as `keepalive`
-// so the fetch survives page teardown.
-function flushOnUnload() {
-  if (saveTimer.value) {
-    clearTimeout(saveTimer.value)
-    saveTimer.value = null
-    // saveNow uses the store which uses @nextcloud/axios — no `keepalive` flag.
-    // We fire-and-forget synchronously here; if the request doesn't finish in
-    // time the note is at worst missing the very last few keystrokes made in
-    // the ~10s window since the previous flush (the whole point of the 10 s
-    // debounce is user-visible batching, not durability of the tail).
-    saveNow()
+// Leaving the page: save what is unsaved. If the tab is being closed with unsaved changes, also ask the
+// browser to confirm, so the request has time to finish.
+function onBeforeUnload(e) {
+  if (!saver.dirty()) return
+  saver.flush()
+  e.preventDefault()
+  e.returnValue = ''
+}
+// Switching tabs or minimising can precede the browser freezing or discarding the page: save now.
+function onVisibility() {
+  if (document.visibilityState === 'hidden') saver.flush()
+}
+function onKeydown(e) {
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+    e.preventDefault()
+    saver.flush()
   }
 }
-window.addEventListener('beforeunload', flushOnUnload)
+window.addEventListener('beforeunload', onBeforeUnload)
+document.addEventListener('visibilitychange', onVisibility)
+window.addEventListener('keydown', onKeydown)
 
 onUnmounted(() => {
-  // Flush before we tear down — otherwise pending edits in the last 10 s
-  // are lost when the user navigates away via the router (which unmounts
-  // this component without firing beforeunload).
-  if (saveTimer.value) {
-    clearTimeout(saveTimer.value)
-    saveTimer.value = null
-    saveNow()
-  }
-  window.removeEventListener('beforeunload', flushOnUnload)
+  // Leaving through the router unmounts this page without beforeunload, so save here too.
+  saver.flush()
+  saver.dispose()
+  window.removeEventListener('beforeunload', onBeforeUnload)
+  document.removeEventListener('visibilitychange', onVisibility)
+  window.removeEventListener('keydown', onKeydown)
 })
 
 async function loadNote(id) {
@@ -233,22 +245,41 @@ function onTitleInput(e) {
   const el = e.target
   el.style.height = 'auto'
   el.style.height = el.scrollHeight + 'px'
-  debouncedSave()
+  markChanged()
 }
 
-// Debounced save — batches typing bursts. 10 s window matches the mobile
-// autosave behaviour and reduces DB writes for long edit sessions. Any
-// still-pending save is flushed by beforeunload / onUnmounted / goBack.
-function debouncedSave() {
-  saveStatus.value = 'saving'
-  if (saveTimer.value) clearTimeout(saveTimer.value)
-  saveTimer.value = setTimeout(() => {
-    saveTimer.value = null
-    saveNow()
-  }, 10000)
+/** Everything a save would write. If it equals the last saved version, nothing really changed (e.g. text typed
+ *  and then undone), so the note is not rewritten and its modified time stays put. */
+function snapshot() {
+  return JSON.stringify({
+    title: title.value,
+    content: content.value,
+    color: noteColor.value,
+    notebook: selectedNotebook.value,
+    tags: noteTags.value.map(t => t.id).sort(),
+  })
 }
 
+/** The editor has loaded the note: its own serialisation of it is the "saved" version to compare against. */
+function onEditorReady(serialized) {
+  content.value = serialized
+  saver.setBaseline()
+}
+
+/** Called on every edit. Nothing is written here: the saver writes within SAVE_INTERVAL_MS. */
+function markChanged() {
+  if (saveStatus.value !== 'unsaved') saveStatus.value = 'unsaved'
+  saver.markDirty()
+}
+
+/** Explicit actions (tags, colour) save straight away. */
 async function saveNow() {
+  saver.markDirty()
+  await saver.flush()
+}
+
+/** Writes the note. Throws on failure so the saver keeps it unsaved and retries. */
+async function persist() {
   saveStatus.value = 'saving'
   const payload = {
     title: title.value,
@@ -264,8 +295,11 @@ async function saveNow() {
       note.value = await store.createNote(payload)
       router.replace(`/note/${note.value.id}`)
     }
-    saveStatus.value = 'saved'
-  } catch { saveStatus.value = 'error' }
+    saveStatus.value = saver.dirty() ? 'unsaved' : 'saved'
+  } catch (e) {
+    saveStatus.value = 'error'
+    throw e
+  }
 }
 
 async function togglePin() {
@@ -321,14 +355,9 @@ function exportMarkdown() {
   a.click()
   URL.revokeObjectURL(a.href)
 }
-function goBack() {
-  // Flush any pending debounced save before navigating away so the user
-  // never loses the last edits they made.
-  if (saveTimer.value) {
-    clearTimeout(saveTimer.value)
-    saveTimer.value = null
-    saveNow()
-  }
+async function goBack() {
+  // Save anything unsaved before navigating away so the user never loses their last edits.
+  await saver.flush()
   router.push('/')
 }
 
@@ -415,7 +444,7 @@ async function unlockGate() {
   color: var(--color-text-lighter);
   white-space: nowrap;
   padding: 0 6px;
-  &.saving { color: var(--color-warning, #e9a825); }
+  &.saving, &.unsaved { color: var(--color-warning, #e9a825); }
   &.error   { color: var(--color-error, #e9322d); }
   &.saved   { color: var(--color-success, #46ba61); }
 }

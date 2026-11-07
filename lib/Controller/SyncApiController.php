@@ -66,7 +66,9 @@ class SyncApiController extends OCSController {
             $todos      = $this->todoService->getUpdatedSince($this->userId, $since);
             $allTodoIds = $this->todoService->getAllIds($this->userId);
         } catch (\Throwable $e) {
-            $todoLists = [];
+            // null (not []) tells clients "could not read To-Dos", so they keep what they have
+            // instead of treating it as "the user has no categories".
+            $todoLists = null;
             $todos = [];
             $allTodoIds = null;
         }
@@ -160,12 +162,20 @@ class SyncApiController extends OCSController {
         // then deletions. Each item is isolated; nothing here can fail the note sync above.
         $results['todoLists'] = [];
         $results['todos'] = [];
+        $listIdByClient = [];
         foreach ($body['todoLists'] ?? [] as $list) {
             try {
                 if (!empty($list['id']) && $list['id'] > 0) {
-                    $results['todoLists'][] = $this->todoListService->update((int)$list['id'], $this->userId, $list);
+                    $saved = $this->todoListService->update((int)$list['id'], $this->userId, $list);
                 } else {
-                    $results['todoLists'][] = $this->todoListService->create($this->userId, $list);
+                    $saved = $this->todoListService->create($this->userId, $list);
+                }
+                $results['todoLists'][] = $saved;
+                // Tasks pushed in this batch may name their new category by clientId.
+                if (isset($list['clientId']) && is_array($saved) && isset($saved['id'])) {
+                    $listIdByClient[(string)$list['clientId']] = (int)$saved['id'];
+                } elseif (isset($list['clientId']) && is_object($saved) && method_exists($saved, 'getId')) {
+                    $listIdByClient[(string)$list['clientId']] = (int)$saved->getId();
                 }
             } catch (\Throwable $e) {
                 $results['errors'][] = ['entity' => 'todoList', 'data' => ['id' => $list['id'] ?? null], 'error' => $e->getMessage()];
@@ -173,6 +183,9 @@ class SyncApiController extends OCSController {
         }
         foreach ($body['todos'] ?? [] as $todo) {
             try {
+                if (empty($todo['listId']) && isset($todo['listClientId'], $listIdByClient[(string)$todo['listClientId']])) {
+                    $todo['listId'] = $listIdByClient[(string)$todo['listClientId']];
+                }
                 if (!empty($todo['id']) && $todo['id'] > 0) {
                     $results['todos'][] = $this->todoService->update((int)$todo['id'], $this->userId, $todo);
                 } else {
