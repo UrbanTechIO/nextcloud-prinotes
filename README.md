@@ -65,7 +65,7 @@ Then enable the app in Nextcloud.
 The Android app connects to your Nextcloud instance for sync. It works fully offline and syncs in the background.
 
 ### Steps
-1. Go to the [Releases page](https://github.com/UrbanTechIO/nextcloud-prinotes/releases) and download `prinotes-android-1.0.0.apk`
+1. Go to the [Releases page](https://github.com/UrbanTechIO/nextcloud-prinotes/releases) and download `prinotes-android-1.2.3.apk`
 2. On your Android device, go to **Settings → Apps → Special app access → Install unknown apps**
 3. Allow your browser (or Files app) to install APKs
 4. Open the downloaded `.apk` and tap **Install**
