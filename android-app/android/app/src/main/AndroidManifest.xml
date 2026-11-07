@@ -47,11 +47,53 @@
             </intent-filter>
         </activity>
 
+        <!-- To-Do home-screen widgets -->
+        <receiver android:name=".todo.TodoWidgetMedium" android:exported="true" android:label="To-Do (medium)">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/todo_widget_medium_info" />
+        </receiver>
+        <receiver android:name=".todo.TodoWidgetLarge" android:exported="true" android:label="To-Do (large)">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/todo_widget_large_info" />
+        </receiver>
+        <service android:name=".todo.TodoWidgetService" android:exported="false"
+            android:permission="android.permission.BIND_REMOTEVIEWS" />
+        <activity android:name=".todo.TodoWidgetConfigActivity" android:exported="true"
+            android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_CONFIGURE" /></intent-filter>
+        </activity>
+        <activity android:name=".todo.TodoWidgetQuickAddActivity" android:exported="false"
+            android:theme="@style/TodoDialog" android:excludeFromRecents="true" android:noHistory="true" />
+        <activity android:name=".todo.TodoWidgetActionActivity" android:exported="false"
+            android:theme="@style/TodoTranslucent" android:excludeFromRecents="true" android:noHistory="true" />
+
+        <!-- home_widget: runs the Dart callback that applies queued widget actions -->
+        <receiver android:name="es.antonborri.home_widget.HomeWidgetBackgroundReceiver" android:exported="true">
+            <intent-filter><action android:name="es.antonborri.home_widget.action.BACKGROUND" /></intent-filter>
+        </receiver>
+        <service android:name="es.antonborri.home_widget.HomeWidgetBackgroundService"
+            android:permission="android.permission.BIND_JOB_SERVICE" android:exported="true" />
+
         <!-- Background sync worker -->
         <service
             android:name="androidx.work.impl.background.systemjob.SystemJobService"
             android:exported="true"
             android:permission="android.permission.BIND_JOB_SERVICE" />
+
+        <!-- flutter_local_notifications: scheduled To-Do reminders, boot reschedule, action buttons -->
+        <receiver android:exported="false"
+            android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationReceiver" />
+        <receiver android:exported="false"
+            android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationBootReceiver">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+                <action android:name="com.htc.intent.action.QUICKBOOT_POWERON" />
+            </intent-filter>
+        </receiver>
+        <receiver android:exported="false"
+            android:name="com.dexterous.flutterlocalnotifications.ActionBroadcastReceiver" />
 
         <!-- Notifications channel setup -->
         <meta-data

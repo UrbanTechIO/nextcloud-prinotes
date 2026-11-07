@@ -7,6 +7,7 @@ import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../../data/local/database.dart';
 import '../providers/notes_provider.dart';
+import 'auto_save_scheduler.dart';
 import 'widgets/note_page_editor.dart';
 import 'widgets/note_lock_screen.dart';
 import 'widgets/note_options_sheet.dart';
@@ -21,23 +22,38 @@ class NoteEditorScreen extends ConsumerStatefulWidget {
   ConsumerState<NoteEditorScreen> createState() => _NoteEditorScreenState();
 }
 
-class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
+class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> with WidgetsBindingObserver {
   Note? _note;
   final _titleCtrl = TextEditingController();
   Map<String, dynamic> _content = {};
   final _editorKey = GlobalKey<NotePageEditorState>();
-  Timer? _saveTimer;
+  /// Saves at most once per minute while editing, and right away when leaving the editor or the app.
+  static const _saveInterval = Duration(seconds: 60);
+  late final AutoSaveScheduler _saver = AutoSaveScheduler(interval: _saveInterval, save: _persist, snapshot: _snapshot);
   String _saveStatus = 'saved';
   bool _loading = true;
   bool _unlocked = false;
-  bool _isSaving = false;
-  bool _hasChanges = false;
   List<Tag> _tags = [];
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _load();
+  }
+
+  /// Everything a save would write. If this equals what was last saved, nothing has really changed
+  /// (e.g. text typed and then undone), so the note is not rewritten and its modified time stays put.
+  String _snapshot() => jsonEncode({
+        't': _titleCtrl.text,
+        'c': _editorKey.currentState?.currentContent() ?? _content,
+        'g': (_tags.map((t) => t.id).toList()..sort()),
+      });
+
+  /// Leaving the app (home, app switch, screen off) saves right away, because the system may kill it.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed) _saver.flush();
   }
 
   Future<void> _load() async {
@@ -47,6 +63,7 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
       _note = await repo.createNote(notebookId: widget.initialNotebookId);
       _content = migrateNoteContent('');
       setState(() => _loading = false);
+      _setBaselineWhenReady();
       return;
     }
 
@@ -64,6 +81,14 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
     setState(() {
       _loading = false;
       _unlocked = !(_note?.isLocked ?? false);
+    });
+    _setBaselineWhenReady();
+  }
+
+  /// Once the editor has been built, remember its content as the saved version.
+  void _setBaselineWhenReady() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _saver.setBaseline();
     });
   }
 
@@ -89,13 +114,21 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
         backgroundColor: noteColor?.withOpacity(0.12) ?? Theme.of(context).appBarTheme.backgroundColor,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
-          onPressed: () {
-            _saveNow();
-            context.pop();
+          onPressed: () async {
+            await _saver.flush();
+            if (context.mounted) context.pop();
           },
         ),
         title: _SaveStatusIndicator(status: _saveStatus),
         actions: [
+          IconButton(
+            icon: Icon(
+              _saveStatus == 'saved' ? Icons.cloud_done_outlined : Icons.save_outlined,
+              color: _saveStatus == 'saved' ? null : Theme.of(context).colorScheme.primary,
+            ),
+            tooltip: 'Save now',
+            onPressed: _saver.flush,
+          ),
           IconButton(
             icon: const Icon(Icons.add_circle_outline),
             tooltip: 'Attach',
@@ -131,7 +164,7 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
                     filled: false,
                     contentPadding: EdgeInsets.zero,
                   ),
-                  onChanged: (_) => _debouncedSave(),
+                  onChanged: (_) => _markChanged(),
                 ),
               ),
 
@@ -142,7 +175,7 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
                   content: _content,
                   onChanged: (content) {
                     _content = content;
-                    _debouncedSave();
+                    _markChanged();
                   },
                 ),
               ),
@@ -270,7 +303,7 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
     final bytes = await file.readAsBytes();
     final dataUrl = 'data:${file.mimeType ?? 'image/jpeg'};base64,${base64Encode(bytes)}';
     _editorKey.currentState?.addImage(dataUrl);
-    _debouncedSave();
+    _markChanged();
   }
 
   void _comingSoon(String feature) {
@@ -295,13 +328,13 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
     );
     if (selected != null) {
       setState(() => _tags.add(selected));
-      _debouncedSave();
+      _markChanged();
     }
   }
 
   void _removeTag(Tag tag) {
     setState(() => _tags.removeWhere((t) => t.id == tag.id));
-    _debouncedSave();
+    _markChanged();
   }
 
   // ── Options sheet ──────────────────────────────────────────────────────────
@@ -320,41 +353,33 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
 
   // ── Save ───────────────────────────────────────────────────────────────────
 
-  void _debouncedSave() {
+  /// Called on every edit. Nothing is written here: the scheduler saves within [_saveInterval].
+  void _markChanged() {
     if (!mounted) return;
-    _hasChanges = true;
-    setState(() => _saveStatus = 'saving');
-    _saveTimer?.cancel();
-    _saveTimer = Timer(const Duration(milliseconds: 1200), _saveNow);
+    if (_saveStatus != 'unsaved') setState(() => _saveStatus = 'unsaved');
+    _saver.markDirty();
   }
 
-  Future<void> _saveNow() async {
-    if (_note == null || _isSaving || !_hasChanges) return;
-    _isSaving = true;
-    _saveTimer?.cancel();
-    _saveTimer = null;
-
+  /// Writes the note. Throws on failure so the scheduler keeps it unsaved and retries.
+  Future<void> _persist() async {
+    if (_note == null) return;
+    // Read everything from `ref` now, before the first await: this also runs while the screen is closing.
+    final repo = ref.read(notesRepoProvider);
+    final db = ref.read(databaseProvider);
+    final note = _note!;
+    final contentStr = jsonEncode(_content);
+    final preview = _extractPreview(_content);
+    final title = _titleCtrl.text;
+    final tagIds = _tags.map((t) => t.id).toList();
+    if (mounted) setState(() => _saveStatus = 'saving');
     try {
-      final contentStr = jsonEncode(_content);
-      final preview = _extractPreview(_content);
-
-      await ref.read(notesRepoProvider).updateNote(
-        _note!,
-        title: _titleCtrl.text,
-        content: contentStr,
-        tagIds: _tags.map((t) => t.id).toList(),
-      );
-
+      await repo.updateNote(note, title: title, content: contentStr, tagIds: tagIds);
       // Write preview separately (not part of notesRepo.updateNote)
-      await (ref.read(databaseProvider).update(ref.read(databaseProvider).notes)
-            ..where((n) => n.id.equals(_note!.id)))
-          .write(NotesCompanion(preview: Value(preview)));
-
-      if (mounted) setState(() => _saveStatus = 'saved');
+      await (db.update(db.notes)..where((n) => n.id.equals(note.id))).write(NotesCompanion(preview: Value(preview)));
+      if (mounted) setState(() => _saveStatus = _saver.dirty ? 'unsaved' : 'saved');
     } catch (e) {
       if (mounted) setState(() => _saveStatus = 'error');
-    } finally {
-      _isSaving = false;
+      rethrow;
     }
   }
 
@@ -391,9 +416,10 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
 
   @override
   void dispose() {
-    _saveTimer?.cancel();
-    // Only flush to DB if the user actually made changes
-    if (_hasChanges) _saveNow();
+    WidgetsBinding.instance.removeObserver(this);
+    // Save whatever is still unsaved (the scheduler only writes when something changed).
+    _saver.flush();
+    _saver.dispose();
     _titleCtrl.dispose();
     super.dispose();
   }
@@ -418,6 +444,13 @@ class _SaveStatusIndicator extends StatelessWidget {
               child: CircularProgressIndicator(strokeWidth: 2)),
           const SizedBox(width: 8),
           Text('Saving...',
+              style: TextStyle(fontSize: 13, color: Colors.orange.shade400)),
+        ]);
+      case 'unsaved':
+        return Row(mainAxisSize: MainAxisSize.min, children: [
+          Icon(Icons.edit_note_rounded, size: 18, color: Colors.orange.shade400),
+          const SizedBox(width: 4),
+          Text('Unsaved',
               style: TextStyle(fontSize: 13, color: Colors.orange.shade400)),
         ]);
       case 'error':

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:minWidth="250dp" android:minHeight="250dp"
+    android:targetCellWidth="4" android:targetCellHeight="4"
+    android:minResizeWidth="180dp" android:minResizeHeight="180dp"
+    android:resizeMode="horizontal|vertical"
+    android:updatePeriodMillis="0"
+    android:initialLayout="@layout/todo_widget_large"
+    android:configure="com.prinotes.app.todo.TodoWidgetConfigActivity"
+    android:widgetCategory="home_screen"
+    android:description="@string/todo_widget_desc_large" />

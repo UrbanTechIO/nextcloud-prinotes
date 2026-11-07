@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="wrap_content"
+    android:orientation="horizontal" android:gravity="center_vertical"
+    android:paddingTop="2dp" android:paddingBottom="2dp">
+    <ImageView android:id="@+id/check" android:layout_width="40dp" android:layout_height="40dp"
+        android:padding="10dp" android:src="@drawable/todo_check_ring"
+        android:contentDescription="Mark done" />
+    <LinearLayout android:id="@+id/row_text" android:layout_width="0dp" android:layout_height="wrap_content"
+        android:layout_weight="1" android:orientation="vertical" android:paddingTop="4dp" android:paddingBottom="4dp">
+        <TextView android:id="@+id/title" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:textColor="#F1F5F9" android:textSize="14sp" android:maxLines="2" android:ellipsize="end" />
+        <TextView android:id="@+id/sub" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:textColor="#94A3B8" android:textSize="11sp" android:maxLines="1" android:ellipsize="end" />
+    </LinearLayout>
+    <TextView android:id="@+id/star" android:layout_width="wrap_content" android:layout_height="wrap_content"
+        android:text="★" android:textColor="#F59E0B" android:textSize="14sp" android:paddingEnd="8dp" />
+</LinearLayout>

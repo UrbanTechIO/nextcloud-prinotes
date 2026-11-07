@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../data/local/database.dart';
 import '../../providers/notes_provider.dart';
+import '../../../../core/theme/glass.dart';
 
 class NoteCard extends ConsumerWidget {
   final Note note;
@@ -36,11 +37,25 @@ class NoteCard extends ConsumerWidget {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final defaultBorderColor = isDark ? const Color(0xFF334155) : const Color(0xFFE2E8F0);
 
+    final glass = ref.watch(glassProvider);
+    final content = isListView
+        ? _buildListLayout(context, tags, noteColor)
+        : _buildGridLayout(context, tags, noteColor);
+
     return GestureDetector(
       onTap: onTap,
       onLongPress: onLongPress,
       child: Stack(
         children: [
+          if (glass.glass)
+            // Frosted / Liquid: a pane of glass, tinted by the note's own colour if it has one.
+            GlassPanel(
+              radius: glass.liquid ? 18 : 12,
+              tint: noteColor,
+              borderColor: noteColor?.withOpacity(0.6),
+              child: content,
+            )
+          else
           Container(
             decoration: BoxDecoration(
               color: noteColor != null
@@ -62,9 +77,7 @@ class NoteCard extends ConsumerWidget {
                     ]
                   : null,
             ),
-            child: isListView
-                ? _buildListLayout(context, tags, noteColor)
-                : _buildGridLayout(context, tags, noteColor),
+            child: content,
           ),
           // Selection overlay
           if (isSelected)

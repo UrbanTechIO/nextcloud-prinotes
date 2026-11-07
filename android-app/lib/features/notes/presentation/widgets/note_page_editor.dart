@@ -94,6 +94,9 @@ class NotePageEditorState extends State<NotePageEditor> {
     super.dispose();
   }
 
+  /// The note body as it would be saved right now (used to tell whether anything really changed).
+  Map<String, dynamic> currentContent() => _serialize();
+
   void _onEditorChange() {
     if (!mounted) return;
     setState(() {}); // Always update toolbar active-state indicators
@@ -643,6 +646,18 @@ class NotePageEditorState extends State<NotePageEditor> {
                 margin: const EdgeInsets.symmetric(horizontal: 4)),
 
             if (inText) ...[
+              // Undo / Redo for typing, deleting, formatting and images (greyed out when empty)
+              _fmtIconBtn(Icons.undo, 'Undo', _qCtrl.hasUndo, () {
+                if (_qCtrl.hasUndo) _qCtrl.undo();
+              }),
+              _fmtIconBtn(Icons.redo, 'Redo', _qCtrl.hasRedo, () {
+                if (_qCtrl.hasRedo) _qCtrl.redo();
+              }),
+              Container(
+                  width: 1,
+                  height: 28,
+                  color: Colors.grey.shade300,
+                  margin: const EdgeInsets.symmetric(horizontal: 4)),
               // Bold
               _fmtIconBtn(
                 Icons.format_bold,

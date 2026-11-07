@@ -1,8 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Adaptive icon foreground: note page with a pen — scaled to ~70% of original.
-  Viewport 108×108dp — safe zone is the centre 72×72 (from 18,18 to 90,90).
-  All paths sit well within the safe zone. White on blue (#0090D4) background.
+  Adaptive icon foreground: three stacked note cards drawn as white outlines on the Nextcloud blue
+  background (the front one has a folded corner), with a white pen.
+  Viewport 108x108dp. The whole drawing is scaled to 86% around the centre so the card corners and the
+  pen stay inside the launcher's mask (circle, squircle...).
 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
@@ -10,58 +11,61 @@
     android:viewportWidth="108"
     android:viewportHeight="108">
 
-    <!-- Note page (rounded rectangle, ~70% scale, centred at 54,54) -->
-    <path
-        android:fillColor="#FFFFFF"
-        android:pathData="
-          M45,33
-          L63,33
-          C64.7,33 66,34.3 66,36
-          L66,75
-          C66,76.7 64.7,78 63,78
-          L45,78
-          C43.3,78 42,76.7 42,75
-          L42,36
-          C42,34.3 43.3,33 45,33
-          Z" />
+    <group
+        android:pivotX="54"
+        android:pivotY="54"
+        android:scaleX="0.86"
+        android:scaleY="0.86">
 
-    <!-- Ruled lines (Nextcloud blue so they show against white) -->
-    <path
-        android:strokeColor="#0090D4"
-        android:strokeWidth="2"
-        android:strokeLineCap="round"
-        android:pathData="M46,43 L62,43" />
-    <path
-        android:strokeColor="#0090D4"
-        android:strokeWidth="2"
-        android:strokeLineCap="round"
-        android:pathData="M46,51 L62,51" />
-    <path
-        android:strokeColor="#0090D4"
-        android:strokeWidth="2"
-        android:strokeLineCap="round"
-        android:pathData="M46,59 L56,59" />
+        <!-- Back card, tilted right (faint outline) -->
+        <group android:pivotX="59" android:pivotY="47" android:rotation="16">
+            <path
+                android:fillColor="#0B78B8"
+                android:strokeColor="#FFFFFF"
+                android:strokeAlpha="0.55"
+                android:strokeWidth="1.6"
+                android:pathData="M46,22 H72 A6,6 0 0 1 78,28 V66 A6,6 0 0 1 72,72 H46 A6,6 0 0 1 40,66 V28 A6,6 0 0 1 46,22 Z" />
+        </group>
 
-    <!-- Pen body (diagonal, lower-right, ~70% scale) -->
-    <path
-        android:fillColor="#FFFFFF"
-        android:pathData="
-          M64,58
-          L70,52
-          C71,51 71,50 70,49
-          L68,47
-          C67,46 66,46 65,47
-          L59,53
-          Z" />
+        <!-- Middle card, tilted left (stronger outline) -->
+        <group android:pivotX="53" android:pivotY="49" android:rotation="-12">
+            <path
+                android:fillColor="#0B78B8"
+                android:strokeColor="#FFFFFF"
+                android:strokeAlpha="0.75"
+                android:strokeWidth="1.6"
+                android:pathData="M40,24 H66 A6,6 0 0 1 72,30 V68 A6,6 0 0 1 66,74 H40 A6,6 0 0 1 34,68 V30 A6,6 0 0 1 40,24 Z" />
+        </group>
 
-    <!-- Pen tip -->
-    <path
-        android:fillColor="#CCE9F6"
-        android:pathData="M59,53 L57,61 L65,59 Z" />
+        <!-- Front card with a folded top-right corner (solid white outline) -->
+        <path
+            android:fillColor="#00659C"
+            android:strokeColor="#FFFFFF"
+            android:strokeWidth="1.6"
+            android:strokeLineJoin="round"
+            android:pathData="M35,30 H60 L74,44 V77 Q74,84 67,84 H35 Q28,84 28,77 V37 Q28,30 35,30 Z" />
+        <path
+            android:fillColor="#0B78B8"
+            android:pathData="M60,30 V40 Q60,44 64,44 H74 Z" />
 
-    <!-- Pen tip point -->
-    <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M57,61 L56,64 L60,62 Z" />
+        <!-- Text lines -->
+        <path
+            android:strokeColor="#FFFFFF"
+            android:strokeWidth="3.6"
+            android:strokeLineCap="round"
+            android:pathData="M35,52 H65 M35,62 H65 M35,72 H53" />
 
+        <!-- Pen: white, slightly see-through -->
+        <group android:translateX="74" android:translateY="66" android:rotation="40">
+            <path
+                android:fillColor="#FFFFFF"
+                android:fillAlpha="0.85"
+                android:pathData="M-4.5,-22 H4.5 V6 L0,17 L-4.5,6 Z" />
+            <path
+                android:strokeColor="#00659C"
+                android:strokeAlpha="0.85"
+                android:strokeWidth="2"
+                android:pathData="M-4.5,-14 H4.5" />
+        </group>
+    </group>
 </vector>

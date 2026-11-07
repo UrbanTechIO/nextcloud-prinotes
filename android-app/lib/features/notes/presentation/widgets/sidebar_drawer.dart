@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../providers/notes_provider.dart';
+import '../../../../core/theme/glass.dart';
 import '../../../../data/local/database.dart';
 import '../../../auth/providers/auth_provider.dart';
 
@@ -15,9 +16,11 @@ class SidebarDrawer extends ConsumerWidget {
     final tags = ref.watch(tagsProvider).valueOrNull ?? [];
     final authState = ref.watch(authStateProvider);
 
+    final glass = ref.watch(glassProvider);
     return Drawer(
       width: 260,
-      child: Column(
+      child: GlassDrawerBody(
+        child: Column(
         children: [
           // Header
           UserAccountsDrawerHeader(
@@ -28,7 +31,9 @@ class SidebarDrawer extends ConsumerWidget {
               backgroundColor: Colors.white,
               child: Icon(Icons.note_alt_rounded, color: Color(0xFF2563EB), size: 32),
             ),
-            decoration: const BoxDecoration(color: Color(0xFF2563EB)),
+            decoration: BoxDecoration(
+              color: glass.glass ? const Color(0xFF2563EB).withOpacity(0.4) : const Color(0xFF2563EB),
+            ),
           ),
 
           Expanded(
@@ -48,6 +53,14 @@ class SidebarDrawer extends ConsumerWidget {
                   title: const Text('Archived'),
                   selected: filter.archived,
                   onTap: () => _selectArchived(ref, context),
+                ),
+                ListTile(
+                  leading: const Icon(Icons.task_alt_rounded),
+                  title: const Text('To-Do'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    context.go('/todo');
+                  },
                 ),
                 ListTile(
                   leading: const Icon(Icons.delete_outline_rounded),
@@ -103,6 +116,7 @@ class SidebarDrawer extends ConsumerWidget {
           ),
           const SizedBox(height: 8),
         ],
+        ),
       ),
     );
   }

@@ -1,9 +1,13 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/theme/glass.dart';
 import '../../../data/remote/api_client.dart';
 import '../../auth/providers/auth_provider.dart';
 import 'package:local_auth/local_auth.dart';
@@ -51,9 +55,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final glass = ref.watch(glassProvider);
     return Scaffold(
-      appBar: AppBar(title: const Text('Settings')),
+      extendBodyBehindAppBar: glass.glass,
+      appBar: GlassAppBar(settings: glass, title: const Text('Settings')),
       body: ListView(
+        padding: EdgeInsets.only(top: GlassAppBar.bodyTopInset(context, glass)),
         children: [
           // Account section
           _sectionHeader('Account'),
@@ -107,9 +114,33 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
           // Appearance
           _sectionHeader('Appearance'),
+          _themeOption(glass, ThemeStyle.classic, 'Classic', 'Navy, solid', const Color(0xFF1E293B)),
+          _themeOption(glass, ThemeStyle.frosted, 'Frosted Glass', 'Blurred bar and cards', null),
+          _themeOption(glass, ThemeStyle.liquid, 'Liquid Glass', 'Floating glass capsules', null),
+          if (glass.glass) ...[
+            _opacitySlider(
+              'Header bar opacity',
+              glass.headerOpacity,
+              ref.read(glassProvider.notifier).setHeaderOpacity,
+            ),
+            _opacitySlider(
+              'Note card opacity',
+              glass.cardOpacity,
+              ref.read(glassProvider.notifier).setCardOpacity,
+            ),
+            const Padding(
+              padding: EdgeInsets.fromLTRB(16, 0, 16, 8),
+              child: Text('Lower values show more of the background through the glass.',
+                  style: TextStyle(fontSize: 12, color: Colors.grey)),
+            ),
+            _sectionHeader('Background'),
+            _backgroundPicker(glass),
+          ],
           ListTile(
-            leading: const Icon(Icons.palette_outlined),
-            title: const Text('Theme'),
+            leading: const Icon(Icons.brightness_6_outlined),
+            title: const Text('Light / dark mode'),
+            subtitle: glass.glass ? const Text('The glass themes are always dark') : null,
+            enabled: !glass.glass,
             trailing: DropdownButton<ThemeMode>(
               value: _themeMode,
               underline: const SizedBox(),
@@ -118,20 +149,25 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 DropdownMenuItem(value: ThemeMode.light, child: Text('Light')),
                 DropdownMenuItem(value: ThemeMode.dark, child: Text('Dark')),
               ],
-              onChanged: (mode) {
-                if (mode == null) return;
-                setState(() => _themeMode = mode);
-                ref.read(themeModeProvider.notifier).state = mode;
-              },
+              onChanged: glass.glass
+                  ? null
+                  : (mode) {
+                      if (mode == null) return;
+                      setState(() => _themeMode = mode);
+                      ref.read(themeModeProvider.notifier).state = mode;
+                    },
             ),
           ),
 
           // About
           _sectionHeader('About'),
-          const ListTile(
-            leading: Icon(Icons.info_outline),
-            title: Text('Version'),
-            subtitle: Text('1.0.0'),
+          ListTile(
+            leading: const Icon(Icons.info_outline),
+            title: const Text('Version'),
+            subtitle: FutureBuilder<PackageInfo>(
+              future: PackageInfo.fromPlatform(),
+              builder: (_, snap) => Text(snap.hasData ? snap.data!.version : ''),
+            ),
           ),
           const ListTile(
             leading: Icon(Icons.code),
@@ -142,6 +178,117 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           const SizedBox(height: 40),
         ],
       ),
+    );
+  }
+
+  Widget _themeOption(GlassSettings glass, ThemeStyle style, String title, String subtitle, Color? solid) {
+    final selected = glass.style == style;
+    return ListTile(
+      leading: Container(
+        width: 36,
+        height: 36,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(style == ThemeStyle.liquid ? 18 : 9),
+          color: solid,
+          gradient: solid == null
+              ? const LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [Color(0xFF2563EB), Color(0xFF7C3AED), Color(0xFFF59E0B)],
+                )
+              : null,
+          border: Border.all(color: Colors.white24),
+        ),
+      ),
+      title: Text(title),
+      subtitle: Text(subtitle),
+      trailing: Icon(
+        selected ? Icons.radio_button_checked : Icons.radio_button_unchecked,
+        color: selected ? Theme.of(context).colorScheme.primary : null,
+      ),
+      onTap: () => ref.read(glassProvider.notifier).setStyle(style),
+    );
+  }
+
+  Widget _bgTile({required bool selected, required VoidCallback onTap, required String label, required Widget child}) {
+    final primary = Theme.of(context).colorScheme.primary;
+    return GestureDetector(
+      onTap: onTap,
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
+        Container(
+          width: 64,
+          height: 96,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: selected ? primary : Colors.white24, width: selected ? 3 : 1),
+          ),
+          child: ClipRRect(borderRadius: BorderRadius.circular(9), child: child),
+        ),
+        const SizedBox(height: 4),
+        Text(label, style: TextStyle(fontSize: 11, color: selected ? primary : null)),
+      ]),
+    );
+  }
+
+  Widget _backgroundPicker(GlassSettings glass) {
+    final notifier = ref.read(glassProvider.notifier);
+    final custom = glass.customPath;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+      child: Wrap(spacing: 12, runSpacing: 12, children: [
+        for (final p in kGlassBackgrounds)
+          _bgTile(
+            selected: glass.background == p.id,
+            onTap: () => notifier.setPreset(p.id),
+            label: p.name,
+            // Draw at phone size, then shrink, so the thumbnail matches the real backdrop.
+            child: FittedBox(
+              fit: BoxFit.cover,
+              child: SizedBox(width: 400, height: 800, child: GlassBackdrop.preset(p)),
+            ),
+          ),
+        if (custom != null)
+          _bgTile(
+            selected: glass.background == 'custom',
+            onTap: () => notifier.setPreset('custom'),
+            label: 'Yours',
+            child: Image.file(File(custom), fit: BoxFit.cover, cacheWidth: 200,
+                errorBuilder: (_, __, ___) => const ColoredBox(color: Colors.black26)),
+          ),
+        _bgTile(
+          selected: false,
+          onTap: _pickImage,
+          label: custom == null ? 'Add photo' : 'Change',
+          child: const ColoredBox(color: Colors.black26, child: Center(child: Icon(Icons.add_photo_alternate_outlined))),
+        ),
+      ]),
+    );
+  }
+
+  Future<void> _pickImage() async {
+    try {
+      final f = await ImagePicker().pickImage(source: ImageSource.gallery, maxWidth: 1600, imageQuality: 88);
+      if (f == null) return;
+      await ref.read(glassProvider.notifier).setCustomImage(f.path);
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not use that image')));
+    }
+  }
+
+  Widget _opacitySlider(String label, double value, void Function(double) onChanged) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+          Text(label),
+          Text('${(value * 100).round()}%'),
+        ]),
+        Slider(
+          value: value,
+          onChanged: onChanged,
+          onChangeEnd: (_) => ref.read(glassProvider.notifier).save(),
+        ),
+      ]),
     );
   }
 

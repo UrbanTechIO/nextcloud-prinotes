@@ -21,8 +21,8 @@ android-app/*.g.dart
 android-app/lib/**/*.g.dart
 
 # Nextcloud
-data/
-config/config.php
+/data/
+/config/config.php
 
 # OS
 .DS_Store

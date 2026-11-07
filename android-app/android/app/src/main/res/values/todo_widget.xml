@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="todo_widget_desc_medium">To-Do tasks (medium)</string>
+    <string name="todo_widget_desc_large">To-Do tasks with quick add (large)</string>
+    <style name="TodoTranslucent" parent="@android:style/Theme.Translucent.NoTitleBar">
+        <item name="android:windowAnimationStyle">@null</item>
+    </style>
+    <style name="TodoDialog" parent="@android:style/Theme.DeviceDefault.Dialog">
+        <item name="android:windowBackground">@android:color/transparent</item>
+    </style>
+</resources>

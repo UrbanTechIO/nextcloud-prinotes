@@ -7,6 +7,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:go_router/go_router.dart';
 import '../providers/notes_provider.dart';
 import '../../../core/constants/app_constants.dart';
+import '../../../core/theme/glass.dart';
 import '../../../data/local/database.dart';
 import '../../../data/remote/api_client.dart';
 import '../../../features/auth/providers/auth_provider.dart';
@@ -25,6 +26,7 @@ class _NoteListScreenState extends ConsumerState<NoteListScreen>
     with WidgetsBindingObserver {
   final _searchCtrl = TextEditingController();
   final _searchFocus = FocusNode();
+  bool _searchOpen = false;
   final _storage = const FlutterSecureStorage();
   bool _syncing = false;
   bool _gridView = true;
@@ -69,26 +71,26 @@ class _NoteListScreenState extends ConsumerState<NoteListScreen>
     final notebooks = ref.watch(notebooksProvider).valueOrNull ?? [];
     final tags = ref.watch(tagsProvider).valueOrNull ?? [];
     final isTrashView = filter.trashed;
+    final glass = ref.watch(glassProvider);
+    final topInset = GlassAppBar.bodyTopInset(context, glass);
 
     return Scaffold(
-      appBar: AppBar(
+      extendBodyBehindAppBar: glass.glass,
+      appBar: GlassAppBar(
+        settings: glass,
+        titleSpacing: 0,
         title: _selecting
-            ? Text('${_selectedIds.length} selected')
-            : Text(_getTitle(filter, notebooks, tags)),
-        leading: _selecting
-            ? IconButton(
-                icon: const Icon(Icons.close),
-                onPressed: () => setState(() => _selectedIds = {}),
+            ? Padding(
+                padding: const EdgeInsets.only(left: 4),
+                child: Text('${_selectedIds.length} selected'),
               )
-            : Builder(
-                builder: (ctx) => IconButton(
-                  icon: const Icon(Icons.menu),
-                  onPressed: () => Scaffold.of(ctx).openDrawer(),
+            : HeaderSearch(
+                title: Padding(
+                  padding: const EdgeInsets.only(left: 4),
+                  child: Text(_getTitle(filter, notebooks, tags)),
                 ),
-              ),
-        actions: _selecting
-            ? []
-            : [
+                actions: [
+
                 IconButton(
                   icon: Icon(_gridView ? Icons.view_list_rounded : Icons.grid_view_rounded),
                   onPressed: () {
@@ -108,74 +110,30 @@ class _NoteListScreenState extends ConsumerState<NoteListScreen>
                         onPressed: _sync,
                         tooltip: 'Sync now',
                       ),
-                PopupMenuButton<String>(
+                GlassMenuButton<String>(
                   onSelected: _onMenuAction,
-                  itemBuilder: (_) => [
-                    const PopupMenuItem(value: 'settings', child: Text('Settings')),
-                    const PopupMenuItem(value: 'lock', child: Text('Lock app')),
+                  items: const [
+                    GlassMenuItem('settings', 'Settings', icon: Icons.settings_outlined),
+                    GlassMenuItem('lock', 'Lock app', icon: Icons.lock_outline),
                   ],
                 ),
-              ],
-        bottom: _selecting
-            ? null
-            : PreferredSize(
-                preferredSize: const Size.fromHeight(60),
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 10),
-                  child: SearchBar(
-                    controller: _searchCtrl,
-                    focusNode: _searchFocus,
-                    hintText: 'Search notes...',
-                    leading: const Icon(Icons.search),
-                    backgroundColor: WidgetStateProperty.all(
-                      Theme.of(context).brightness == Brightness.dark
-                          ? const Color(0xFF1E3A5F)
-                          : const Color(0xFFE8EEF8),
-                    ),
-                    elevation: WidgetStateProperty.all(0),
-                    trailing: [
-                      if (_searchCtrl.text.isNotEmpty)
-                        IconButton(
-                          icon: const Icon(Icons.clear),
-                          onPressed: () {
-                            _searchCtrl.clear();
-                            ref.read(noteFilterProvider.notifier).update(
-                              (f) => f.copyWith(searchQuery: ''),
-                            );
-                          },
-                        ),
-                    ],
-                    onChanged: (q) {
-                      if (q == '::vault') {
-                        _searchCtrl.clear();
-                        _searchFocus.unfocus();
-                        ref.read(noteFilterProvider.notifier).update(
-                          (f) => f.copyWith(searchQuery: ''),
-                        );
-                        _handleVaultCommand();
-                        return;
-                      }
-                      // Check if typed text matches vault password
-                      if (_vaultHashCache != null) {
-                        final typed = sha256.convert(utf8.encode('$q:prinotes-vault')).toString();
-                        if (typed == _vaultHashCache) {
-                          _searchCtrl.clear();
-                          _searchFocus.unfocus();
-                          ref.read(noteFilterProvider.notifier).update(
-                            (f) => f.copyWith(searchQuery: ''),
-                          );
-                          ref.read(vaultUnlockedProvider.notifier).state = true;
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('Hidden notes visible')),
-                          );
-                          return;
-                        }
-                      }
-                      ref.read(noteFilterProvider.notifier).update(
-                        (f) => f.copyWith(searchQuery: q),
-                      );
-                    },
-                  ),
+                ],
+                open: _searchOpen,
+                controller: _searchCtrl,
+                focusNode: _searchFocus,
+                onOpen: () => setState(() => _searchOpen = true),
+                onClose: () => setState(() => _searchOpen = false),
+                onChanged: _onSearchChanged,
+              ),
+        leading: _selecting
+            ? IconButton(
+                icon: const Icon(Icons.close),
+                onPressed: () => setState(() => _selectedIds = {}),
+              )
+            : Builder(
+                builder: (ctx) => IconButton(
+                  icon: const Icon(Icons.menu),
+                  onPressed: () => Scaffold.of(ctx).openDrawer(),
                 ),
               ),
       ),
@@ -196,9 +154,10 @@ class _NoteListScreenState extends ConsumerState<NoteListScreen>
               final others = notes.where((n) => !n.isPinned).toList();
               return RefreshIndicator(
                 onRefresh: _sync,
+                edgeOffset: topInset,
                 child: CustomScrollView(
                   slivers: [
-                    const SliverToBoxAdapter(child: SizedBox(height: 12)),
+                    SliverToBoxAdapter(child: SizedBox(height: 12 + topInset)),
                     if (pinned.isNotEmpty) ...[
                       const SliverToBoxAdapter(
                         child: Padding(
@@ -236,7 +195,9 @@ class _NoteListScreenState extends ConsumerState<NoteListScreen>
                 curve: Curves.easeOut,
                 margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
                 decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.surface,
+                  color: glass.glass
+                      ? const Color(0xFF16213A).withOpacity(0.88)
+                      : Theme.of(context).colorScheme.surface,
                   borderRadius: BorderRadius.circular(16),
                   boxShadow: [
                     BoxShadow(
@@ -309,12 +270,39 @@ class _NoteListScreenState extends ConsumerState<NoteListScreen>
         ],
         ),
       ),
-      floatingActionButton: _selecting
-          ? null
-          : FloatingActionButton(
-              onPressed: _createNote,
-              child: const Icon(Icons.add),
-            ),
+      floatingActionButton: _selecting ? null : GlassFab(onPressed: _createNote),
+    );
+  }
+
+  /// Search box in the header. Typing the vault command or the vault password reveals hidden notes.
+  void _onSearchChanged(String q) {
+    if (q == '::vault') {
+      _searchCtrl.clear();
+      _searchFocus.unfocus();
+      ref.read(noteFilterProvider.notifier).update(
+        (f) => f.copyWith(searchQuery: ''),
+      );
+      _handleVaultCommand();
+      return;
+    }
+    // Check if typed text matches vault password
+    if (_vaultHashCache != null) {
+      final typed = sha256.convert(utf8.encode('$q:prinotes-vault')).toString();
+      if (typed == _vaultHashCache) {
+        _searchCtrl.clear();
+        _searchFocus.unfocus();
+        ref.read(noteFilterProvider.notifier).update(
+          (f) => f.copyWith(searchQuery: ''),
+        );
+        ref.read(vaultUnlockedProvider.notifier).state = true;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Hidden notes visible')),
+        );
+        return;
+      }
+    }
+    ref.read(noteFilterProvider.notifier).update(
+      (f) => f.copyWith(searchQuery: q),
     );
   }
 

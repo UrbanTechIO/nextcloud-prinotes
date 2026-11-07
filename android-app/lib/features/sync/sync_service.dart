@@ -5,6 +5,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../../core/constants/app_constants.dart';
 import '../../data/local/database.dart';
 import '../../data/remote/api_client.dart';
+import '../todo/data/todo_sync.dart';
 
 class SyncService {
   final AppDatabase db;
@@ -32,6 +33,12 @@ class SyncService {
       await _push();
     } catch (e) {
       dev.log('[Sync] Push error: $e', name: 'SyncService');
+    }
+    // To-Do push is independent of notes: its failure never affects them.
+    try {
+      await TodoSync(db, api).push();
+    } catch (e) {
+      dev.log('[Sync] To-Do push error: $e', name: 'SyncService');
     }
     return cleaned;
   }
@@ -221,6 +228,13 @@ class SyncService {
       try { await _upsertNote(apiNote as Map, pendingDeletes: pendingDeletes); } catch (e) {
         dev.log('[Sync] note upsert error: $e', name: 'SyncService');
       }
+    }
+
+    // To-Dos: isolated so a failure here never aborts the note pull.
+    try {
+      await TodoSync(db, api).pull(data);
+    } catch (e) {
+      dev.log('[Sync] To-Do pull error: $e', name: 'SyncService');
     }
 
     // Use allNoteIds for two purposes:

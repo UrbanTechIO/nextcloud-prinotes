@@ -8,6 +8,7 @@ import '../../features/notes/presentation/note_list_screen.dart';
 import '../../features/notes/presentation/note_editor_screen.dart';
 import '../../features/settings/presentation/settings_screen.dart';
 import '../../features/auth/providers/auth_provider.dart';
+import '../../features/todo/presentation/todo_screen.dart';
 
 final appRouterProvider = Provider<GoRouter>((ref) {
   final authState = ref.watch(authStateProvider);
@@ -29,6 +30,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
     routes: [
       GoRoute(path: '/setup', builder: (ctx, state) => const SetupScreen()),
       GoRoute(path: '/lock', builder: (ctx, state) => const LockScreen()),
+      GoRoute(path: '/todo', builder: (ctx, state) => const TodoScreen()),
       GoRoute(
         path: '/',
         builder: (ctx, state) => const NoteListScreen(),
