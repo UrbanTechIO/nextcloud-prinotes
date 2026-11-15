@@ -4,15 +4,21 @@ import '../todo/providers/todo_provider.dart';
 import 'sync_service.dart';
 
 class BackgroundSync {
-  static Future<void> run() async {
-    final db = AppDatabase();
-    final api = ApiClient();
-    final service = SyncService(db: db, api: api);
-    await service.sync();
-    // Keep To-Do alarms and the home-screen widget in step with what sync just pulled.
+  /// Runs one background sync. Never throws: a failure (no network, expired password, bad response)
+  /// returns false so WorkManager just tries again later, and the database is always closed.
+  static Future<bool> run({AppDatabase? db, ApiClient? api}) async {
+    final database = db ?? AppDatabase();
     try {
-      await TodoEffects.refresh(db);
-    } catch (_) {}
-    await db.close();
+      await SyncService(db: database, api: api ?? ApiClient()).sync();
+      // Keep To-Do alarms and the home-screen widget in step with what sync just pulled.
+      try {
+        await TodoEffects.refresh(database);
+      } catch (_) {}
+      return true;
+    } catch (_) {
+      return false;
+    } finally {
+      await database.close();
+    }
   }
 }

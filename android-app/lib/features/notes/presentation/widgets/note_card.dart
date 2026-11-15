@@ -50,6 +50,7 @@ class NoteCard extends ConsumerWidget {
           if (glass.glass)
             // Frosted / Liquid: a pane of glass, tinted by the note's own colour if it has one.
             GlassPanel(
+              blur: false,
               radius: glass.liquid ? 18 : 12,
               tint: noteColor,
               borderColor: noteColor?.withOpacity(0.6),

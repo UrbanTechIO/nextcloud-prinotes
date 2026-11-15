@@ -1,8 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:layout_width="match_parent" android:layout_height="match_parent"
-    android:orientation="vertical" android:background="@drawable/todo_widget_bg"
-    android:padding="12dp">
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="match_parent">
+    <!-- Own view so the provider can change its alpha (RemoteViews cannot fade a background drawable). -->
+    <ImageView android:id="@+id/widget_bg" android:layout_width="match_parent" android:layout_height="match_parent"
+        android:src="@drawable/todo_widget_bg" android:scaleType="fitXY" />
+    <LinearLayout android:layout_width="match_parent" android:layout_height="match_parent"
+    android:orientation="vertical" android:padding="12dp">
     <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
         android:orientation="horizontal" android:gravity="center_vertical">
         <TextView android:id="@+id/header_title" android:layout_width="0dp" android:layout_height="wrap_content"
@@ -22,3 +25,4 @@
         android:layout_marginTop="6dp" android:background="@drawable/todo_add_row_bg" android:padding="10dp"
         android:text="Add a task…" android:textColor="#94A3B8" android:textSize="13sp" />
 </LinearLayout>
+</FrameLayout>

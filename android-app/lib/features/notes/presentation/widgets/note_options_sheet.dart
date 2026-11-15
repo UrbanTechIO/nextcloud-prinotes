@@ -11,12 +11,17 @@ class NoteOptionsSheet extends ConsumerWidget {
   final Note note;
   final ValueChanged<Note> onChanged;
 
-  const NoteOptionsSheet({super.key, required this.note, required this.onChanged});
+  /// Called after the note was moved to the trash, e.g. so the editor can close itself.
+  final VoidCallback? onTrashed;
+
+  const NoteOptionsSheet({super.key, required this.note, required this.onChanged, this.onTrashed});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final vaultUnlocked = ref.watch(vaultUnlockedProvider);
+    // Scrolls, so every row (down to "Move to trash") stays reachable on short or landscape screens.
     return SafeArea(
+      child: SingleChildScrollView(
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -87,7 +92,7 @@ class NoteOptionsSheet extends ConsumerWidget {
             leading: const Icon(Icons.delete_outline, color: Colors.red),
             title: const Text('Move to trash', style: TextStyle(color: Colors.red)),
             onTap: () async {
-              Navigator.pop(context);
+              final repo = ref.read(notesRepoProvider);
               final confirm = await showDialog<bool>(
                 context: context,
                 builder: (ctx) => AlertDialog(
@@ -106,13 +111,17 @@ class NoteOptionsSheet extends ConsumerWidget {
                   ],
                 ),
               );
-              if (confirm != true) return;
-              await ref.read(notesRepoProvider).trashNote(note.id);
+              // Close the sheet only after the dialog is answered: popping it first left the dialog without a
+              // live context, so nothing happened at all.
               if (context.mounted) Navigator.of(context).pop();
+              if (confirm != true) return;
+              await repo.trashNote(note.id);
+              onTrashed?.call();
             },
           ),
           const SizedBox(height: 8),
         ],
+      ),
       ),
     );
   }

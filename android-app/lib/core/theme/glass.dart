@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:ui';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show MethodChannel;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:path_provider/path_provider.dart';
@@ -149,6 +150,56 @@ MediaQueryData trimTopInset(MediaQueryData mq, double max) => mq.copyWith(
       viewPadding: mq.viewPadding.copyWith(top: mq.viewPadding.top > max ? max : mq.viewPadding.top),
     );
 
+/// The frosted header pane: slate at the header opacity, a soft white sheen, blur 18. Shared by the header
+/// bar and the add button so the two always look the same and follow the same slider.
+const frostedBlurSigma = 18.0;
+
+BoxDecoration frostedPaneDecoration(double headerOpacity, {Border? border, BorderRadius? radius}) => BoxDecoration(
+      borderRadius: radius,
+      color: const Color(0xFF1E293B).withOpacity(0.12 + 0.88 * headerOpacity),
+      gradient: LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: [Colors.white.withOpacity(0.14), Colors.white.withOpacity(0.03)],
+      ),
+      border: border,
+    );
+
+/// Top inset for the app. Some phones hide the status bar for the app (the camera cut-out then still
+/// reports a tall inset that would push the header down); others show it and the header must sit below.
+/// [statusBarDp] is the real, visible status bar height measured natively: null = not measured yet
+/// (keep the system value), 0 = hidden (trim to [kGlassTopInset]), > 0 = visible (keep the system value).
+MediaQueryData shellInset(MediaQueryData mq, double? statusBarDp) =>
+    statusBarDp == 0 ? trimTopInset(mq, kGlassTopInset) : mq;
+
+/// Wraps every screen with [shellInset], and in the glass themes paints the backdrop behind the transparent screens.
+TransitionBuilder appShellBuilder(GlassSettings glass, {double? statusBarDp}) => (context, child) {
+      final body = child ?? const SizedBox.shrink();
+      return MediaQuery(
+        data: shellInset(MediaQuery.of(context), statusBarDp),
+        child: glass.glass
+            ? Stack(fit: StackFit.expand, children: [
+                GlassBackdrop(background: glass.background, customPath: glass.customPath),
+                body,
+              ])
+            : body,
+      );
+    };
+
+/// Height in dp of the status bar when it is really shown (0 when hidden), null until measured.
+final statusBarHeightProvider = StateProvider<double?>((_) => null);
+
+const _systemChannel = MethodChannel('prinotes/system');
+
+/// Asks Android for the visible status bar height; null if it cannot be measured.
+Future<double?> readStatusBarHeight() async {
+  try {
+    return await _systemChannel.invokeMethod<double>('statusBarHeight');
+  } catch (_) {
+    return null;
+  }
+}
+
 // ── Backdrop ────────────────────────────────────────────────────────────────
 
 /// A built-in backdrop: a dark two-stop gradient with three soft colour blobs.
@@ -244,6 +295,10 @@ class GlassPanel extends ConsumerWidget {
   final EdgeInsetsGeometry? padding;
   final Color? borderColor;
 
+  /// Blur what is behind the panel. Every blur needs its own offscreen buffer, so lists of cards turn it
+  /// off (over the smooth backdrop it is barely visible) and keep it for the few bars and menus.
+  final bool blur;
+
   const GlassPanel({
     super.key,
     required this.child,
@@ -253,12 +308,15 @@ class GlassPanel extends ConsumerWidget {
     this.header = false,
     this.padding,
     this.borderColor,
+    this.blur = true,
   });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final s = ref.watch(glassProvider);
     if (!s.glass) return child;
+    Widget blurred(double sigma, Widget c) =>
+        blur ? BackdropFilter(filter: ImageFilter.blur(sigmaX: sigma, sigmaY: sigma), child: c) : c;
     final r = BorderRadius.circular(radius);
     final op = opacity ?? (header ? s.headerOpacity : s.cardOpacity);
 
@@ -273,9 +331,9 @@ class GlassPanel extends ConsumerWidget {
         ),
         child: ClipRRect(
           borderRadius: r,
-          child: BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
-            child: Container(
+          child: blurred(
+            12,
+            Container(
               padding: padding,
               decoration: BoxDecoration(
                 borderRadius: r,
@@ -296,9 +354,9 @@ class GlassPanel extends ConsumerWidget {
     final base = tint ?? const Color(0xFF1E293B);
     return ClipRRect(
       borderRadius: r,
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
-        child: Container(
+      child: blurred(
+        14,
+        Container(
           padding: padding,
           decoration: BoxDecoration(
             borderRadius: r,
@@ -322,22 +380,31 @@ class GlassFab extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final s = ref.watch(glassProvider);
     if (!s.glass) return FloatingActionButton(onPressed: onPressed, child: Icon(icon));
-    return GlassPanel(
-      radius: s.liquid ? 28 : 18,
-      tint: s.liquid ? null : const Color(0xFF2563EB),
-      opacity: 0.55,
-      child: Material(
-        type: MaterialType.transparency,
-        child: InkWell(
-          onTap: onPressed,
-          child: SizedBox(width: 56, height: 56, child: Icon(icon, color: Colors.white)),
+    final inkwell = Material(
+      type: MaterialType.transparency,
+      child: InkWell(
+        onTap: onPressed,
+        child: SizedBox(width: 56, height: 56, child: Icon(icon, color: Colors.white)),
+      ),
+    );
+    if (s.liquid) return GlassPanel(radius: 28, header: true, child: inkwell);
+    // Frosted: the very same pane as the header bar.
+    final r = BorderRadius.circular(18);
+    return ClipRRect(
+      borderRadius: r,
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: frostedBlurSigma, sigmaY: frostedBlurSigma),
+        child: DecoratedBox(
+          decoration: frostedPaneDecoration(s.headerOpacity, radius: r, border: Border.all(color: Colors.white.withOpacity(0.28))),
+          child: inkwell,
         ),
       ),
     );
   }
 }
 
-/// Body of a Drawer: a normal solid drawer in Classic, a blurred glass sheet otherwise.
+/// Body of a Drawer. Classic: a normal solid drawer. Frosted: the same frosted pane as the header bar,
+/// at the header opacity. Liquid: a floating glass panel with a gap around it, like the header capsule.
 class GlassDrawerBody extends ConsumerWidget {
   final Widget child;
   const GlassDrawerBody({super.key, required this.child});
@@ -346,18 +413,70 @@ class GlassDrawerBody extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final s = ref.watch(glassProvider);
     if (!s.glass) return child;
+    if (s.liquid) {
+      final top = MediaQuery.paddingOf(context).top;
+      return Padding(
+        padding: EdgeInsets.fromLTRB(8, top + 8, 0, 8),
+        child: GlassPanel(radius: 28, header: true, child: ClipRRect(borderRadius: BorderRadius.circular(28), child: child)),
+      );
+    }
     return ClipRRect(
       borderRadius: const BorderRadius.horizontal(right: Radius.circular(24)),
       child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+        filter: ImageFilter.blur(sigmaX: frostedBlurSigma, sigmaY: frostedBlurSigma),
         child: DecoratedBox(
-          decoration: BoxDecoration(
-            color: const Color(0xFF0F172A).withOpacity((s.headerOpacity + 0.1).clamp(0.3, 0.9)),
-            border: Border(right: BorderSide(color: Colors.white.withOpacity(0.14))),
+          decoration: frostedPaneDecoration(
+            s.headerOpacity,
+            border: Border(right: BorderSide(color: Colors.white.withOpacity(0.28))),
           ),
           child: child,
         ),
       ),
+    );
+  }
+}
+
+/// Top of a drawer: the standard blue account header in Classic, a see-through one in the glass themes
+/// (avatar, name and server on the glass, with a thin divider), so the drawer looks like one pane.
+class DrawerAccountHeader extends ConsumerWidget {
+  final String name;
+  final String subtitle;
+  final IconData icon;
+  const DrawerAccountHeader({super.key, required this.name, required this.subtitle, required this.icon});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final s = ref.watch(glassProvider);
+    if (!s.glass) {
+      return UserAccountsDrawerHeader(
+        accountName: Text(name, style: const TextStyle(fontWeight: FontWeight.w600)),
+        accountEmail: Text(subtitle),
+        currentAccountPicture: CircleAvatar(backgroundColor: Colors.white, child: Icon(icon, color: const Color(0xFF2563EB), size: 32)),
+        decoration: const BoxDecoration(color: Color(0xFF2563EB)),
+      );
+    }
+    return Container(
+      padding: EdgeInsets.fromLTRB(16, MediaQuery.paddingOf(context).top + 16, 16, 14),
+      decoration: BoxDecoration(border: Border(bottom: BorderSide(color: Colors.white.withOpacity(0.18)))),
+      child: Row(children: [
+        Container(
+          width: 44,
+          height: 44,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: Colors.white.withOpacity(0.14),
+            border: Border.all(color: Colors.white.withOpacity(0.28)),
+          ),
+          child: Icon(icon, color: Colors.white, size: 24),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+            Text(name, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
+            Text(subtitle, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12, color: Colors.white70)),
+          ]),
+        ),
+      ]),
     );
   }
 }
@@ -515,18 +634,10 @@ class GlassAppBar extends StatelessWidget implements PreferredSizeWidget {
           surfaceTintColor: Colors.transparent,
           flexibleSpace: ClipRect(
             child: BackdropFilter(
-              filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+              filter: ImageFilter.blur(sigmaX: frostedBlurSigma, sigmaY: frostedBlurSigma),
               child: DecoratedBox(
-                decoration: BoxDecoration(
-                  // Slate (lighter than the page) so the bar reads as a pane even over the dark top of the
-                  // backdrop; 0% leaves a faint pane, 100% is solid. A soft sheen and a light bottom edge
-                  // make the frost visible.
-                  color: const Color(0xFF1E293B).withOpacity(0.12 + 0.88 * settings.headerOpacity),
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [Colors.white.withOpacity(0.14), Colors.white.withOpacity(0.03)],
-                  ),
+                decoration: frostedPaneDecoration(
+                  settings.headerOpacity,
                   border: Border(bottom: BorderSide(color: Colors.white.withOpacity(0.28))),
                 ),
                 // The AppBar gives its background loose constraints; without a child that fills them this

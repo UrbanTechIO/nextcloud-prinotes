@@ -70,21 +70,15 @@ class TodoDrawer extends ConsumerWidget {
 
     final glass = ref.watch(glassProvider);
     return Drawer(
+      elevation: glass.glass ? 0 : null,
       width: 280,
-      child: GlassDrawerBody(child: Column(children: [
-        UserAccountsDrawerHeader(
-          accountName: Text(auth.username ?? 'PriNotes', style: const TextStyle(fontWeight: FontWeight.w600)),
-          accountEmail: Text(auth.serverUrl ?? ''),
-          currentAccountPicture: const CircleAvatar(
-            backgroundColor: Colors.white,
-            child: Icon(Icons.task_alt_rounded, color: Color(0xFF2563EB), size: 32),
-          ),
-          decoration: BoxDecoration(
-            color: glass.glass ? const Color(0xFF2563EB).withOpacity(0.4) : const Color(0xFF2563EB),
-          ),
+      child: GlassDrawerBody(child: ListView(padding: EdgeInsets.zero, children: [
+        DrawerAccountHeader(
+          name: auth.username ?? 'PriNotes',
+          subtitle: auth.serverUrl ?? '',
+          icon: Icons.task_alt_rounded,
         ),
-        Expanded(
-          child: ListView(padding: EdgeInsets.zero, children: [
+        ...[
             ListTile(leading: const Icon(Icons.notes_rounded), title: const Text('All Notes'), onTap: () => goNotes(const NoteFilter())),
             ListTile(leading: const Icon(Icons.archive_outlined), title: const Text('Archived'), onTap: () => goNotes(const NoteFilter(archived: true))),
             ListTile(
@@ -114,8 +108,7 @@ class TodoDrawer extends ConsumerWidget {
               listTile(l, child: false),
               for (final c in lists.where((x) => x.parentLocalId == l.id)) listTile(c, child: true),
             ],
-          ]),
-        ),
+        ],
         const Divider(),
         ListTile(
           leading: const Icon(Icons.settings_outlined),

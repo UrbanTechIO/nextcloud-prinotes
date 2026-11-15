@@ -2,6 +2,33 @@
 
 All notable changes to PriNotes are documented here.
 
+## [1.2.4] – 2026-11-15
+
+Android app only. The Nextcloud app (web) stays at 1.2.3.
+
+### Added
+- **Backgrounds for the glass themes:** seven built-in backgrounds and "Add photo" for your own picture (Settings → Appearance → Background).
+- **Widget transparency:** a "Background opacity" slider in the To-Do widget settings (tap the widget title).
+- **To-Do remembers the last list.** Tapping To-Do opens the list you left it on, also after closing the app.
+- A 📝 mark on a task that has a note, next to its due date and reminder.
+- The phone vibrates when you select the first note.
+- The sidebar now follows the theme: the same frosted pane as the header in Frosted Glass, a floating glass panel in Liquid Glass, with a see-through account header.
+
+### Changed
+- The plus button in Frosted Glass looks exactly like the header and follows the same opacity slider.
+- Note cards in landscape are no longer huge: they are at most 240 wide, so landscape shows more columns.
+- Settings shows the real app version.
+- Glass themes use much less memory: note and To-Do cards no longer run a blur each (about 600 MB of graphics memory before, against 284 MB in Classic). Android had been closing the app in the background for low memory.
+
+### Fixed
+- Leaving a note with the phone's back button or gesture did not save it.
+- Back with notes selected closed the app instead of clearing the selection.
+- "Move to trash" in a note's menu did nothing: the confirmation never appeared, and on short screens the row was cut off. The menu now scrolls.
+- The header sat under the status bar on phones that show one (issue #4). The app now checks whether the status bar is visible: header below it when shown, at the top when hidden.
+- The Classic theme header was not at the top on phones that hide the status bar.
+- Opening Settings or going back drew the old and new screen on top of each other in the glass themes.
+- The sidebar menus could not scroll in landscape.
+
 ## [1.2.3] – 2026-11-07
 
 ### Added

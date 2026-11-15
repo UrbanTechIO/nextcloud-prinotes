@@ -50,6 +50,9 @@ object TodoWidgetData {
         }
     }
 
+    /** Background opacity in percent, 0..100. Default keeps the old look (95%). */
+    fun bgAlpha(c: Context, widgetId: Int): Int = config(c, widgetId).optInt("bgAlpha", 95).coerceIn(0, 100)
+
     fun saveConfig(c: Context, widgetId: Int, cfg: JSONObject) {
         prefs(c).edit().putString("widget_$widgetId", cfg.toString()).apply()
     }

@@ -49,6 +49,14 @@ class _TodoScreenState extends ConsumerState<TodoScreen> {
     final todos = ref.watch(todosProvider).valueOrNull ?? [];
     final lists = ref.watch(todoListsProvider).valueOrNull ?? [];
     final view = ref.watch(todoViewProvider);
+    if (ref.watch(todoListsProvider).hasValue) {
+      final fallback = view.existingIn(lists.map((l) => l.id).toSet());
+      if (fallback != view) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) ref.read(todoViewProvider.notifier).state = fallback;
+        });
+      }
+    }
     final today = localDateString();
     final open = openTodosFor(todos, lists, view, today);
     final finished = finishedTodosFor(todos, lists, view, today);
@@ -229,6 +237,7 @@ class _TodoCard extends ConsumerWidget {
       if (todo.dueDate != null) _meta('📅 ${_dueText(todo.dueDate!, today)}', overdue ? Colors.redAccent : scheme.onSurfaceVariant),
       if (todo.remindAt != null && !todo.isDone) _meta('⏰ ${_time(todo.remindAt!)}', scheme.onSurfaceVariant),
       if (todo.repeatRule != null) _meta('🔁 ${todo.repeatRule}', scheme.onSurfaceVariant),
+      if (todoHasNote(todo.note)) _meta('📝', scheme.onSurfaceVariant),
       if (steps.isNotEmpty) _meta('☑ ${steps.where((s) => s.done).length}/${steps.length}', scheme.onSurfaceVariant),
       if (todo.isDone && todo.doneAt != null) _meta('Done ${_time(todo.doneAt!)}', scheme.onSurfaceVariant),
     ];
@@ -291,6 +300,7 @@ class _TodoCard extends ConsumerWidget {
       ? Padding(
           padding: const EdgeInsets.symmetric(vertical: 4),
           child: GlassPanel(
+              blur: false,
             radius: glass.liquid ? 18 : 12,
             tint: selected ? scheme.primary : null,
             child: card,
@@ -314,3 +324,6 @@ class _TodoCard extends ConsumerWidget {
     return due;
   }
 }
+
+/// True when a task's note holds real text (not null, empty or only whitespace); drives the note indicator.
+bool todoHasNote(String? note) => note != null && note.trim().isNotEmpty;

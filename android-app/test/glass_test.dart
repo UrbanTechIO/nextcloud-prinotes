@@ -1,3 +1,4 @@
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -5,6 +6,10 @@ import 'package:prinotes/core/theme/glass.dart';
 import 'package:prinotes/core/theme/app_theme.dart';
 
 void main() {
+  blurBudgetTests();
+  drawerThemeTests();
+  fabMatchTests();
+  shellTests();
   transitionTests();
   group('GlassSettings', () {
     test('defaults to the Classic look with sensible glass opacities', () {
@@ -315,4 +320,136 @@ void transitionTests() {
     expect(find.text('second'), findsOneWidget);
     expect(find.text('first'), findsNothing, reason: 'old page must not stay drawn under the new one');
   });
+}
+
+void shellTests() {
+  testWidgets('classic theme: header sits at the top despite a tall camera cut-out inset', (tester) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.padding = const FakeViewPadding(top: 37);
+    tester.view.viewPadding = const FakeViewPadding(top: 37);
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(ProviderScope(
+      child: MaterialApp(
+        builder: appShellBuilder(const GlassSettings(), statusBarDp: 0),
+        home: Scaffold(appBar: AppBar(title: const Text('T')), body: const SizedBox()),
+      ),
+    ));
+    // Toolbar is 56 high; with the inset trimmed to 8 the title centre is at 8 + 28.
+    expect(tester.getCenter(find.text('T')).dy, lessThan(37 + 28 - 10));
+  });
+
+  for (final style in [ThemeStyle.classic, ThemeStyle.frosted, ThemeStyle.liquid]) {
+    testWidgets('$style: a visible status bar keeps the header below it', (tester) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.padding = const FakeViewPadding(top: 37);
+      tester.view.viewPadding = const FakeViewPadding(top: 37);
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(ProviderScope(
+        overrides: [glassInitialProvider.overrideWithValue(GlassSettings(style: style))],
+        child: MaterialApp(
+          builder: appShellBuilder(GlassSettings(style: style), statusBarDp: 24),
+          home: Scaffold(appBar: AppBar(title: const Text('T')), body: const SizedBox()),
+        ),
+      ));
+      // Title centre = 37 (status bar) + 28 (half the toolbar).
+      expect(tester.getCenter(find.text('T')).dy, greaterThanOrEqualTo(37 + 20));
+    });
+  }
+
+  test('shellInset: unknown status bar keeps the system inset, hidden one trims, visible one keeps', () {
+    const mq = MediaQueryData(padding: EdgeInsets.only(top: 37), viewPadding: EdgeInsets.only(top: 37));
+    expect(shellInset(mq, null).padding.top, 37, reason: 'not measured yet: do not guess');
+    expect(shellInset(mq, 0).padding.top, kGlassTopInset, reason: 'status bar hidden: header at the top');
+    expect(shellInset(mq, 24).padding.top, 37, reason: 'status bar shown: header below it');
+  });
+
+  testWidgets('frosted FAB uses the header colour, not blue', (tester) async {
+    await tester.pumpWidget(ProviderScope(
+      overrides: [glassInitialProvider.overrideWithValue(const GlassSettings(style: ThemeStyle.frosted))],
+      child: MaterialApp(home: Scaffold(floatingActionButton: GlassFab(onPressed: () {}))),
+    ));
+    final boxes = tester.widgetList<DecoratedBox>(find.descendant(of: find.byType(GlassFab), matching: find.byType(DecoratedBox)));
+    final colors = boxes.map((c) => (c.decoration as BoxDecoration?)?.color).whereType<Color>().toList();
+    expect(colors, isNotEmpty);
+    final c = colors.first;
+    expect(c.blue - c.red, lessThan(60), reason: 'header is slate (1E293B), the old FAB was bright blue (2563EB)');
+    expect(c.red, 0x1E);
+  });
+}
+
+void fabMatchTests() {
+  Future<BoxDecoration> fabDecoration(WidgetTester tester, double header) async {
+    await tester.pumpWidget(ProviderScope(
+      overrides: [
+        glassInitialProvider.overrideWithValue(GlassSettings(style: ThemeStyle.frosted, headerOpacity: header, cardOpacity: 0.2)),
+      ],
+      child: MaterialApp(home: Scaffold(floatingActionButton: GlassFab(onPressed: () {}))),
+    ));
+    final blur = tester.widget<BackdropFilter>(find.descendant(of: find.byType(GlassFab), matching: find.byType(BackdropFilter)));
+    expect(blur.filter, ImageFilter.blur(sigmaX: 18, sigmaY: 18), reason: 'same blur as the header');
+    return tester
+        .widgetList<DecoratedBox>(find.descendant(of: find.byType(GlassFab), matching: find.byType(DecoratedBox)))
+        .map((d) => d.decoration)
+        .whereType<BoxDecoration>()
+        .firstWhere((d) => d.gradient != null);
+  }
+
+  for (final v in [0.0, 0.3, 1.0]) {
+    testWidgets('frosted FAB paints exactly like the header at header opacity $v', (tester) async {
+      final d = await fabDecoration(tester, v);
+      expect(d.color, const Color(0xFF1E293B).withOpacity(0.12 + 0.88 * v));
+      final g = d.gradient as LinearGradient;
+      expect(g.colors, [Colors.white.withOpacity(0.14), Colors.white.withOpacity(0.03)]);
+    });
+  }
+}
+
+void drawerThemeTests() {
+  Future<void> pumpDrawerBody(WidgetTester tester, GlassSettings s, Widget child) => tester.pumpWidget(ProviderScope(
+        overrides: [glassInitialProvider.overrideWithValue(s)],
+        child: MaterialApp(home: Scaffold(body: SizedBox(width: 280, height: 600, child: child))),
+      ));
+
+  testWidgets('frosted drawer paints the same pane as the header, at the header opacity', (tester) async {
+    await pumpDrawerBody(tester, const GlassSettings(style: ThemeStyle.frosted, headerOpacity: 0.3),
+        const GlassDrawerBody(child: SizedBox.expand()));
+    final blur = tester.widget<BackdropFilter>(find.byType(BackdropFilter));
+    expect(blur.filter, ImageFilter.blur(sigmaX: frostedBlurSigma, sigmaY: frostedBlurSigma));
+    final d = tester.widgetList<DecoratedBox>(find.byType(DecoratedBox)).map((b) => b.decoration).whereType<BoxDecoration>().firstWhere((x) => x.gradient != null);
+    expect(d.color, const Color(0xFF1E293B).withOpacity(0.12 + 0.88 * 0.3));
+  });
+
+  testWidgets('liquid drawer is a floating glass panel', (tester) async {
+    await pumpDrawerBody(tester, const GlassSettings(style: ThemeStyle.liquid), const GlassDrawerBody(child: SizedBox.expand()));
+    expect(find.byType(GlassPanel), findsOneWidget);
+  });
+
+  testWidgets('glass themes show a translucent account header, Classic keeps the standard one', (tester) async {
+    for (final style in [ThemeStyle.frosted, ThemeStyle.liquid]) {
+      await pumpDrawerBody(tester, GlassSettings(style: style), const DrawerAccountHeader(name: 'rami', subtitle: 'https://x', icon: Icons.note_alt_rounded));
+      expect(find.byType(UserAccountsDrawerHeader), findsNothing, reason: '$style: solid blue block is gone');
+      expect(find.text('rami'), findsOneWidget);
+      expect(find.text('https://x'), findsOneWidget);
+    }
+    await pumpDrawerBody(tester, const GlassSettings(), const DrawerAccountHeader(name: 'rami', subtitle: 'https://x', icon: Icons.note_alt_rounded));
+    expect(find.byType(UserAccountsDrawerHeader), findsOneWidget);
+  });
+}
+
+void blurBudgetTests() {
+  for (final style in [ThemeStyle.frosted, ThemeStyle.liquid]) {
+    testWidgets('$style: list cards (blur: false) do not run a blur each; chrome panels still do', (tester) async {
+      await tester.pumpWidget(ProviderScope(
+        overrides: [glassInitialProvider.overrideWithValue(GlassSettings(style: style))],
+        child: const MaterialApp(
+          home: Column(children: [
+            GlassPanel(blur: false, child: SizedBox(width: 50, height: 50)),
+            GlassPanel(blur: false, child: SizedBox(width: 50, height: 50)),
+            GlassPanel(header: true, child: SizedBox(width: 50, height: 50)),
+          ]),
+        ),
+      ));
+      expect(find.byType(BackdropFilter), findsOneWidget, reason: 'only the header-style panel blurs');
+    });
+  }
 }

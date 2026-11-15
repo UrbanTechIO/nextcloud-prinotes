@@ -108,16 +108,19 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> with Widget
 
     final noteColor = _parseColor(_note?.color);
 
-    return Scaffold(
+    // The phone's back button / gesture must save the note too, exactly like the arrow in the app bar.
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) _leave();
+      },
+      child: Scaffold(
       backgroundColor: noteColor?.withOpacity(0.08) ?? Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(
         backgroundColor: noteColor?.withOpacity(0.12) ?? Theme.of(context).appBarTheme.backgroundColor,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
-          onPressed: () async {
-            await _saver.flush();
-            if (context.mounted) context.pop();
-          },
+          onPressed: _leave,
         ),
         title: _SaveStatusIndicator(status: _saveStatus),
         actions: [
@@ -190,6 +193,7 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> with Widget
               child: _buildTagColumn(),
             ),
         ],
+      ),
       ),
     );
   }
@@ -339,10 +343,25 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> with Widget
 
   // ── Options sheet ──────────────────────────────────────────────────────────
 
+  /// Saves any pending edit, then closes the editor. Used by the arrow and by the system back button.
+  Future<void> _leave() async {
+    try {
+      await _saver.flush();
+    } catch (_) {
+      // The scheduler keeps the change dirty and dispose() tries once more.
+    }
+    if (mounted) context.pop();
+  }
+
   void _showOptions(BuildContext context) {
     showModalBottomSheet(
       context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
       builder: (_) => NoteOptionsSheet(
+        onTrashed: () {
+          if (mounted) context.pop();
+        },
         note: _note!,
         onChanged: (updatedNote) {
           setState(() => _note = updatedNote);

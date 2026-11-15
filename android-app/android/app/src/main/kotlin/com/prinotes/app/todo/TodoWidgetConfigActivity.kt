@@ -11,6 +11,7 @@ import android.widget.Button
 import android.widget.CheckBox
 import android.widget.LinearLayout
 import android.widget.ScrollView
+import android.widget.SeekBar
 import android.widget.Switch
 import android.widget.TextView
 import org.json.JSONArray
@@ -78,12 +79,27 @@ class TodoWidgetConfigActivity : Activity() {
         }
         root.addView(sub)
 
+        val alphaLabel = label("")
+        val alpha = SeekBar(this).apply {
+            max = 100
+            progress = cfg.optInt("bgAlpha", 95).coerceIn(0, 100)
+            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(sb: SeekBar?, p: Int, fromUser: Boolean) { alphaLabel.text = "BACKGROUND OPACITY  $p%" }
+                override fun onStartTrackingTouch(sb: SeekBar?) {}
+                override fun onStopTrackingTouch(sb: SeekBar?) {}
+            })
+        }
+        alphaLabel.text = "BACKGROUND OPACITY  ${alpha.progress}%"
+        root.addView(alphaLabel)
+        root.addView(alpha)
+
         root.addView(Button(this).apply {
             text = "Save"
             setOnClickListener {
                 val picked = boxes.filter { it.second.isChecked }.map { it.first }
                 cfg.put("sources", JSONArray(picked.ifEmpty { listOf("smart:today") }))
                 cfg.put("includeSub", sub.isChecked)
+                cfg.put("bgAlpha", alpha.progress)
                 TodoWidgetData.saveConfig(this@TodoWidgetConfigActivity, widgetId, cfg)
                 redraw()
                 setResult(RESULT_OK, Intent().putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, widgetId))

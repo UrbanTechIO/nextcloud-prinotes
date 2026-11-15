@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'features/todo/providers/todo_provider.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -21,7 +22,7 @@ final FlutterLocalNotificationsPlugin notificationsPlugin =
 void callbackDispatcher() {
   Workmanager().executeTask((task, inputData) async {
     if (task == AppConstants.syncTaskName) {
-      await BackgroundSync.run();
+      return BackgroundSync.run();
     }
     return true;
   });
@@ -63,7 +64,11 @@ Future<void> main() async {
 
   // Stored theme (Classic / Frosted / Liquid) is read first so the very first frame already has it.
   final initialGlass = await loadGlassSettings();
-  final container = ProviderContainer(overrides: [glassInitialProvider.overrideWithValue(initialGlass)]);
+  final initialTodoView = await loadTodoView();
+  final container = ProviderContainer(overrides: [
+    glassInitialProvider.overrideWithValue(initialGlass),
+    todoViewInitialProvider.overrideWithValue(initialTodoView),
+  ]);
   runApp(UncontrolledProviderScope(container: container, child: const PriNotesApp()));
 
   // Tapping a task in the home-screen widget opens the To-Do screen.
@@ -76,14 +81,48 @@ Future<void> main() async {
   }
 }
 
-class PriNotesApp extends ConsumerWidget {
+class PriNotesApp extends ConsumerStatefulWidget {
   const PriNotesApp({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<PriNotesApp> createState() => _PriNotesAppState();
+}
+
+class _PriNotesAppState extends ConsumerState<PriNotesApp> with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _measureStatusBar());
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  // The status bar can appear or vanish (rotation, per-app setting, resume): measure again.
+  @override
+  void didChangeMetrics() => _measureStatusBar();
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) _measureStatusBar();
+  }
+
+  Future<void> _measureStatusBar() async {
+    final h = await readStatusBarHeight();
+    if (!mounted || h == null) return;
+    if (ref.read(statusBarHeightProvider) != h) ref.read(statusBarHeightProvider.notifier).state = h;
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final router = ref.watch(appRouterProvider);
     final themeMode = ref.watch(themeModeProvider);
     final glass = ref.watch(glassProvider);
+    ref.listen(todoViewProvider, (_, v) => saveTodoView(v));
 
     return MaterialApp.router(
       title: 'PriNotes',
@@ -93,16 +132,7 @@ class PriNotesApp extends ConsumerWidget {
       themeMode: glass.glass ? ThemeMode.dark : themeMode,
       routerConfig: router,
       scrollBehavior: glass.glass ? const _NoEdgeEffectScrollBehavior() : null,
-      // Glass themes paint one gradient behind every screen; the screens themselves are transparent.
-      builder: glass.glass
-          ? (context, child) => MediaQuery(
-                data: trimTopInset(MediaQuery.of(context), kGlassTopInset),
-                child: Stack(fit: StackFit.expand, children: [
-                  GlassBackdrop(background: glass.background, customPath: glass.customPath),
-                  if (child != null) child,
-                ]),
-              )
-          : null,
+      builder: appShellBuilder(glass, statusBarDp: ref.watch(statusBarHeightProvider)),
     );
   }
 }

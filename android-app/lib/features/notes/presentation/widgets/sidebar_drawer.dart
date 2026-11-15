@@ -18,28 +18,22 @@ class SidebarDrawer extends ConsumerWidget {
 
     final glass = ref.watch(glassProvider);
     return Drawer(
+      elevation: glass.glass ? 0 : null,
       width: 260,
       child: GlassDrawerBody(
-        child: Column(
+        // One scrolling list for everything: in landscape the fixed header and bottom items left no room
+        // for a scrollable middle.
+        child: ListView(
+        padding: EdgeInsets.zero,
         children: [
           // Header
-          UserAccountsDrawerHeader(
-            accountName: Text(authState.username ?? 'PriNotes',
-              style: const TextStyle(fontWeight: FontWeight.w600)),
-            accountEmail: Text(authState.serverUrl ?? ''),
-            currentAccountPicture: const CircleAvatar(
-              backgroundColor: Colors.white,
-              child: Icon(Icons.note_alt_rounded, color: Color(0xFF2563EB), size: 32),
-            ),
-            decoration: BoxDecoration(
-              color: glass.glass ? const Color(0xFF2563EB).withOpacity(0.4) : const Color(0xFF2563EB),
-            ),
+          DrawerAccountHeader(
+            name: authState.username ?? 'PriNotes',
+            subtitle: authState.serverUrl ?? '',
+            icon: Icons.note_alt_rounded,
           ),
 
-          Expanded(
-            child: ListView(
-              padding: EdgeInsets.zero,
-              children: [
+          ...[
                 // All Notes
                 ListTile(
                   leading: const Icon(Icons.notes_rounded),
@@ -94,9 +88,7 @@ class SidebarDrawer extends ConsumerWidget {
                   ),
                 ),
                 ...tags.map((tag) => _buildTagTile(tag, filter, ref, context)),
-              ],
-            ),
-          ),
+          ],
 
           // Bottom actions
           const Divider(),

@@ -30,6 +30,7 @@ abstract class BaseTodoWidget(private val layout: Int, private val hasAddRow: Bo
     private fun build(context: Context, id: Int): RemoteViews {
         val rv = RemoteViews(context.packageName, layout)
         rv.setTextViewText(R.id.header_title, TodoWidgetData.header(context, id))
+        rv.setInt(R.id.widget_bg, "setImageAlpha", TodoWidgetData.bgAlpha(context, id) * 255 / 100)
         rv.setTextViewText(
             R.id.empty,
             if (TodoWidgetData.allSourcesMissing(context, id)) "Category not found.\nTap the title to choose again."

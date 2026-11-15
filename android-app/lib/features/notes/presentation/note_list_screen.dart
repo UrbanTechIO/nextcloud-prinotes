@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:crypto/crypto.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show HapticFeedback;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:go_router/go_router.dart';
@@ -74,7 +75,13 @@ class _NoteListScreenState extends ConsumerState<NoteListScreen>
     final glass = ref.watch(glassProvider);
     final topInset = GlassAppBar.bodyTopInset(context, glass);
 
-    return Scaffold(
+    // Back with notes selected clears the selection; it must not close the app.
+    return PopScope(
+      canPop: !_selecting,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) setState(() => _selectedIds = {});
+      },
+      child: Scaffold(
       extendBodyBehindAppBar: glass.glass,
       appBar: GlassAppBar(
         settings: glass,
@@ -271,6 +278,7 @@ class _NoteListScreenState extends ConsumerState<NoteListScreen>
         ),
       ),
       floatingActionButton: _selecting ? null : GlassFab(onPressed: _createNote),
+      ),
     );
   }
 
@@ -348,12 +356,7 @@ class _NoteListScreenState extends ConsumerState<NoteListScreen>
             },
             childCount: notes.length,
           ),
-          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 2,
-            mainAxisSpacing: 8,
-            crossAxisSpacing: 8,
-            childAspectRatio: 1.05,
-          ),
+          gridDelegate: noteGridDelegate,
         ),
       );
     } else {
@@ -384,6 +387,8 @@ class _NoteListScreenState extends ConsumerState<NoteListScreen>
   }
 
   void _toggleSelection(int id) {
+    // A buzz when selection mode starts, so a long press is felt.
+    if (_selectedIds.isEmpty) HapticFeedback.vibrate();
     setState(() {
       if (_selectedIds.contains(id)) {
         _selectedIds.remove(id);
@@ -678,3 +683,12 @@ class _NoteListScreenState extends ConsumerState<NoteListScreen>
     super.dispose();
   }
 }
+
+/// Note cards are at most 240 wide: two columns on a portrait phone, more in landscape or on a tablet
+/// instead of two huge cards.
+const noteGridDelegate = SliverGridDelegateWithMaxCrossAxisExtent(
+  maxCrossAxisExtent: 240,
+  mainAxisSpacing: 8,
+  crossAxisSpacing: 8,
+  childAspectRatio: 1.05,
+);

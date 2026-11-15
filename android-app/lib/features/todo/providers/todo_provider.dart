@@ -1,3 +1,4 @@
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../data/local/database.dart';
@@ -76,13 +77,51 @@ class TodoViewSel {
   const TodoViewSel.smart(String this.smart) : listId = null;
   const TodoViewSel.list(int this.listId) : smart = null;
 
+  /// This view, or Today when it points at a category that was deleted meanwhile (e.g. on the web).
+  TodoViewSel existingIn(Set<int> listIds) =>
+      listId != null && !listIds.contains(listId) ? const TodoViewSel.smart('today') : this;
+
+  String encode() => smart != null ? 'smart:$smart' : 'list:$listId';
+
+  /// Reads a stored value; anything unreadable gives Today.
+  static TodoViewSel decode(String? raw) {
+    const smarts = {'today', 'important', 'planned', 'all'};
+    if (raw != null) {
+      if (raw.startsWith('smart:') && smarts.contains(raw.substring(6))) return TodoViewSel.smart(raw.substring(6));
+      if (raw.startsWith('list:')) {
+        final id = int.tryParse(raw.substring(5));
+        if (id != null) return TodoViewSel.list(id);
+      }
+    }
+    return const TodoViewSel.smart('today');
+  }
+
   @override
   bool operator ==(Object other) => other is TodoViewSel && other.smart == smart && other.listId == listId;
   @override
   int get hashCode => Object.hash(smart, listId);
 }
 
-final todoViewProvider = StateProvider<TodoViewSel>((ref) => const TodoViewSel.smart('today'));
+/// Overridden in main() with the stored view, so the To-Do screen opens on the list you left it on.
+final todoViewInitialProvider = Provider<TodoViewSel>((_) => const TodoViewSel.smart('today'));
+final todoViewProvider = StateProvider<TodoViewSel>((ref) => ref.watch(todoViewInitialProvider));
+
+const _todoViewStore = FlutterSecureStorage();
+const _kTodoView = 'todo_last_view';
+
+Future<TodoViewSel> loadTodoView() async {
+  try {
+    return TodoViewSel.decode(await _todoViewStore.read(key: _kTodoView));
+  } catch (_) {
+    return const TodoViewSel.smart('today');
+  }
+}
+
+Future<void> saveTodoView(TodoViewSel v) async {
+  try {
+    await _todoViewStore.write(key: _kTodoView, value: v.encode());
+  } catch (_) {}
+}
 
 // ── Pure view logic (also unit-testable) ─────────────────────────────────────
 
