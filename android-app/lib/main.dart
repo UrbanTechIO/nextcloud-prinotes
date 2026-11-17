@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'features/todo/todo_navigation.dart';
+import 'features/update/update_checker.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'features/todo/providers/todo_provider.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
@@ -71,13 +74,19 @@ Future<void> main() async {
   ]);
   runApp(UncontrolledProviderScope(container: container, child: const PriNotesApp()));
 
-  // Tapping a task in the home-screen widget opens the To-Do screen.
+  // Tapping a task in the home-screen widget, or a reminder notification, opens the To-Do page on that
+  // task's category.
+  void openTask(int? id) => openTodoFromTap(container, id);
+  TodoReminders.onOpenTask = openTask;
   HomeWidget.widgetClicked.listen((uri) {
-    if (uri?.scheme == 'todo') container.read(appRouterProvider).go('/todo');
+    if (uri?.scheme == 'todo') openTask(taskIdFromWidgetUri(uri));
   });
   final launchedFrom = await HomeWidget.initiallyLaunchedFromHomeWidget();
   if (launchedFrom?.scheme == 'todo') {
-    WidgetsBinding.instance.addPostFrameCallback((_) => container.read(appRouterProvider).go('/todo'));
+    WidgetsBinding.instance.addPostFrameCallback((_) => openTask(taskIdFromWidgetUri(launchedFrom)));
+  } else {
+    final fromNotification = await TodoReminders.launchTaskId();
+    if (fromNotification != null) WidgetsBinding.instance.addPostFrameCallback((_) => openTask(fromNotification));
   }
 }
 
@@ -93,7 +102,16 @@ class _PriNotesAppState extends ConsumerState<PriNotesApp> with WidgetsBindingOb
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    WidgetsBinding.instance.addPostFrameCallback((_) => _measureStatusBar());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _measureStatusBar();
+      _checkForUpdate();
+    });
+  }
+
+  /// Once per app start: is there a newer GitHub release?
+  Future<void> _checkForUpdate() async {
+    final version = (await PackageInfo.fromPlatform()).version;
+    if (mounted) await checkForUpdateAtStart(ProviderScope.containerOf(context), version);
   }
 
   @override

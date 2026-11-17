@@ -2,10 +2,21 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../providers/notes_provider.dart';
-import '../../../../core/theme/glass.dart';
+import '../../../../core/widgets/app_sidebar.dart';
 import '../../../../data/local/database.dart';
 import '../../../auth/providers/auth_provider.dart';
 
+Color? _parseColor(String? hex) {
+  if (hex == null || hex.isEmpty) return null;
+  try {
+    return Color(int.parse(hex.replaceAll('#', 'FF'), radix: 16));
+  } catch (_) {
+    return null;
+  }
+}
+
+/// The notes sidebar: a Notes / To-Do switch, tiles for All notes and Archived, notebooks as rows,
+/// tags as chips, and a bottom bar. Deleting a notebook or tag is a long-press, not an X on every row.
 class SidebarDrawer extends ConsumerWidget {
   const SidebarDrawer({super.key});
 
@@ -14,129 +25,74 @@ class SidebarDrawer extends ConsumerWidget {
     final filter = ref.watch(noteFilterProvider);
     final notebooks = ref.watch(notebooksProvider).valueOrNull ?? [];
     final tags = ref.watch(tagsProvider).valueOrNull ?? [];
-    final authState = ref.watch(authStateProvider);
 
-    final glass = ref.watch(glassProvider);
-    return Drawer(
-      elevation: glass.glass ? 0 : null,
-      width: 260,
-      child: GlassDrawerBody(
-        // One scrolling list for everything: in landscape the fixed header and bottom items left no room
-        // for a scrollable middle.
-        child: ListView(
-        padding: EdgeInsets.zero,
-        children: [
-          // Header
-          DrawerAccountHeader(
-            name: authState.username ?? 'PriNotes',
-            subtitle: authState.serverUrl ?? '',
-            icon: Icons.note_alt_rounded,
-          ),
+    final isAll = filter.notebookId == null && filter.tagId == null && !filter.trashed && !filter.archived;
 
-          ...[
-                // All Notes
-                ListTile(
-                  leading: const Icon(Icons.notes_rounded),
-                  title: const Text('All Notes'),
-                  selected: filter.notebookId == null && filter.tagId == null
-                    && !filter.trashed && !filter.archived,
-                  onTap: () => _selectAll(ref, context),
-                ),
-                ListTile(
-                  leading: const Icon(Icons.archive_outlined),
-                  title: const Text('Archived'),
-                  selected: filter.archived,
-                  onTap: () => _selectArchived(ref, context),
-                ),
-                ListTile(
-                  leading: const Icon(Icons.task_alt_rounded),
-                  title: const Text('To-Do'),
-                  onTap: () {
-                    Navigator.pop(context);
-                    context.go('/todo');
-                  },
-                ),
-                ListTile(
-                  leading: const Icon(Icons.delete_outline_rounded),
-                  title: const Text('Trash'),
-                  selected: filter.trashed,
-                  onTap: () => _selectTrash(ref, context),
-                ),
-
-                const Divider(),
-
-                // Notebooks
-                ListTile(
-                  leading: const Icon(Icons.menu_book_rounded),
-                  title: const Text('Notebooks'),
-                  trailing: IconButton(
-                    icon: const Icon(Icons.add, size: 20),
-                    onPressed: () => _createNotebook(context, ref),
-                  ),
-                ),
-                ...notebooks.map((nb) => _buildNotebookTile(nb, filter, ref, context)),
-
-                const Divider(),
-
-                // Tags
-                ListTile(
-                  leading: const Icon(Icons.label_outline_rounded),
-                  title: const Text('Tags'),
-                  trailing: IconButton(
-                    icon: const Icon(Icons.add, size: 20),
-                    onPressed: () => _createTag(context, ref),
-                  ),
-                ),
-                ...tags.map((tag) => _buildTagTile(tag, filter, ref, context)),
-          ],
-
-          // Bottom actions
-          const Divider(),
-          ListTile(
-            leading: const Icon(Icons.settings_outlined),
-            title: const Text('Settings'),
-            onTap: () { Navigator.pop(context); context.push('/settings'); },
-          ),
-          ListTile(
-            leading: const Icon(Icons.lock_outline),
-            title: const Text('Lock app'),
-            onTap: () {
-              Navigator.pop(context);
-              ref.read(authStateProvider.notifier).lock();
-              context.go('/lock');
-            },
-          ),
-          const SizedBox(height: 8),
-        ],
+    return AppSidebar(
+      mode: SidebarMode.notes,
+      onNotes: () => Navigator.pop(context),
+      onTodo: () {
+        Navigator.pop(context);
+        context.go('/todo');
+      },
+      content: [
+        SidebarTileGrid(tiles: [
+          SidebarTile(icon: Icons.notes_rounded, label: 'All notes', selected: isAll, onTap: () => _selectAll(ref, context)),
+          SidebarTile(icon: Icons.archive_outlined, label: 'Archived', selected: filter.archived, onTap: () => _selectArchived(ref, context)),
+        ]),
+        SidebarSection('Notebooks', onAdd: () => _createNotebook(context, ref)),
+        for (final nb in notebooks) _notebookRow(nb, filter, ref, context),
+        SidebarSection('Tags', onAdd: () => _createTag(context, ref)),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(14, 6, 14, 4),
+          child: Wrap(spacing: 6, runSpacing: 6, children: [
+            for (final tag in tags) _tagChip(tag, filter, ref, context),
+          ]),
         ),
-      ),
+        const SizedBox(height: 4),
+      ],
+      bar: [
+        SidebarBarItem(Icons.delete_outline_rounded, 'Trash', () => _selectTrash(ref, context)),
+        SidebarBarItem(Icons.settings_outlined, 'Settings', () {
+          Navigator.pop(context);
+          context.push('/settings');
+        }),
+        SidebarBarItem(Icons.lock_outline, 'Lock', () {
+          Navigator.pop(context);
+          ref.read(authStateProvider.notifier).lock();
+          context.go('/lock');
+        }),
+      ],
     );
   }
 
-  Widget _buildNotebookTile(Notebook nb, NoteFilter filter, WidgetRef ref, BuildContext context) {
-    Color? color;
-    if (nb.color != null) {
-      try { color = Color(int.parse(nb.color!.replaceAll('#', 'FF'), radix: 16)); } catch (_) {}
-    }
-    return ListTile(
-      contentPadding: const EdgeInsets.only(left: 32, right: 8),
-      leading: CircleAvatar(
-        radius: 8,
-        backgroundColor: color ?? Colors.grey.shade400,
-      ),
-      title: Text(nb.title, style: const TextStyle(fontSize: 14)),
+  Widget _notebookRow(Notebook nb, NoteFilter filter, WidgetRef ref, BuildContext context) {
+    return SidebarRow(
+      leading: SidebarDot(_parseColor(nb.color) ?? Colors.grey.shade500),
+      title: Text(nb.title, maxLines: 1, overflow: TextOverflow.ellipsis),
       selected: filter.notebookId == nb.id,
-      trailing: IconButton(
-        icon: const Icon(Icons.close, size: 16, color: Colors.grey),
-        tooltip: 'Delete notebook',
-        onPressed: () => _deleteNotebook(context, ref, nb),
-      ),
       onTap: () {
-        ref.read(noteFilterProvider.notifier).update(
-          (f) => NoteFilter(notebookId: nb.id),
-        );
+        ref.read(noteFilterProvider.notifier).update((f) => NoteFilter(notebookId: nb.id));
         Navigator.pop(context);
       },
+      onLongPress: () => showSidebarActions(context, title: nb.title, actions: [
+        SidebarAction(Icons.delete_outline, 'Delete', () => _deleteNotebook(context, ref, nb), danger: true),
+      ]),
+    );
+  }
+
+  Widget _tagChip(Tag tag, NoteFilter filter, WidgetRef ref, BuildContext context) {
+    return SidebarChip(
+      label: '#${tag.name}',
+      color: _parseColor(tag.color),
+      selected: filter.tagId == tag.id,
+      onTap: () {
+        ref.read(noteFilterProvider.notifier).update((f) => NoteFilter(tagId: tag.id));
+        Navigator.pop(context);
+      },
+      onLongPress: () => showSidebarActions(context, title: '#${tag.name}', actions: [
+        SidebarAction(Icons.delete_outline, 'Delete', () => _deleteTag(context, ref, tag), danger: true),
+      ]),
     );
   }
 
@@ -166,30 +122,6 @@ class SidebarDrawer extends ConsumerWidget {
       ref.read(noteFilterProvider.notifier).state = const NoteFilter();
     }
     await ref.read(notesRepoProvider).deleteNotebook(nb.id);
-  }
-
-  Widget _buildTagTile(Tag tag, NoteFilter filter, WidgetRef ref, BuildContext context) {
-    Color? color;
-    if (tag.color != null) {
-      try { color = Color(int.parse(tag.color!.replaceAll('#', 'FF'), radix: 16)); } catch (_) {}
-    }
-    return ListTile(
-      contentPadding: const EdgeInsets.only(left: 32, right: 8),
-      leading: Icon(Icons.label, size: 16, color: color ?? Colors.grey),
-      title: Text('#${tag.name}', style: const TextStyle(fontSize: 14)),
-      selected: filter.tagId == tag.id,
-      trailing: IconButton(
-        icon: const Icon(Icons.close, size: 16, color: Colors.grey),
-        tooltip: 'Delete tag',
-        onPressed: () => _deleteTag(context, ref, tag),
-      ),
-      onTap: () {
-        ref.read(noteFilterProvider.notifier).update(
-          (f) => NoteFilter(tagId: tag.id),
-        );
-        Navigator.pop(context);
-      },
-    );
   }
 
   Future<void> _deleteTag(BuildContext context, WidgetRef ref, Tag tag) async {

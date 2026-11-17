@@ -2,6 +2,21 @@
 
 All notable changes to PriNotes are documented here.
 
+## [1.2.5] – 2026-11-17
+
+Android app. The Nextcloud app (web) store version stays at 1.2.3; the reminder switch below needs a matching Nextcloud app update, which comes with the next web release.
+
+### Added
+- **Update check.** PriNotes looks for a newer release on GitHub each time it starts, and offers it with the release notes. Settings → Updates → **Check for updates** does the same on demand. Tap **Download and install** and Android's installer takes it from there (Android asks once to allow PriNotes to install apps). "Later" is remembered for that version.
+- **New sidebars** for notes and To-Do: a Notes / To-Do switch at the top, Today / Important / Planned / All tasks as tiles with counts, categories as plain one-line rows (sub-categories fold under their parent), tags as chips, and a bottom bar with Archive, Trash, Settings and Lock. Long-press a category, notebook or tag for Edit, Add sub-category or Delete. The width follows the screen (80%, between 272 and 320 dp), and on short screens the bottom bar scrolls with the list.
+- **Reminders from PriNotes only.** Settings → Reminders → *Also notify through Nextcloud*. To-Do reminders always come from PriNotes itself; turn the switch off to stop the extra notification in the Nextcloud app (takes effect once the Nextcloud app is updated).
+
+### Changed
+- Tapping a reminder notification opens the To-Do page on that task's category.
+
+### Fixed
+- Tapping a task in the home-screen widget opened the notes list instead of To-Do, especially when the app was locked. It now opens the To-Do page on the task's category, also after unlocking with a fingerprint or PIN.
+
 ## [1.2.4] – 2026-11-15
 
 Android app only. The Nextcloud app (web) stays at 1.2.3.

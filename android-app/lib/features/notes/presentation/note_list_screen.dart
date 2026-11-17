@@ -3,6 +3,9 @@ import 'dart:convert';
 import 'package:crypto/crypto.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show HapticFeedback;
+import 'package:package_info_plus/package_info_plus.dart';
+import '../../update/update_checker.dart';
+import '../../update/update_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:go_router/go_router.dart';
@@ -42,7 +45,11 @@ class _NoteListScreenState extends ConsumerState<NoteListScreen>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _loadPrefs();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _sync());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _sync();
+      final pending = ref.read(availableUpdateProvider);
+      if (pending != null) _offerUpdate(pending);
+    });
     _syncTimer = Timer.periodic(const Duration(seconds: 60), (_) => _sync());
   }
 
@@ -57,6 +64,20 @@ class _NoteListScreenState extends ConsumerState<NoteListScreen>
     }
   }
 
+  bool _updateDialogOpen = false;
+
+  /// A newer release was found at app start: ask once. "Later" is remembered for that version.
+  Future<void> _offerUpdate(ReleaseInfo r) async {
+    if (_updateDialogOpen || !mounted) return;
+    _updateDialogOpen = true;
+    ref.read(availableUpdateProvider.notifier).state = null;
+    final version = (await PackageInfo.fromPlatform()).version;
+    if (!mounted) return;
+    final installed = await showUpdateDialog(context, r, currentVersion: version);
+    if (installed != true) await saveDismissedUpdate(r.version);
+    _updateDialogOpen = false;
+  }
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     // Re-sync whenever the app comes back to the foreground
@@ -67,6 +88,9 @@ class _NoteListScreenState extends ConsumerState<NoteListScreen>
 
   @override
   Widget build(BuildContext context) {
+    ref.listen<ReleaseInfo?>(availableUpdateProvider, (_, r) {
+      if (r != null) _offerUpdate(r);
+    });
     final notesAsync = ref.watch(notesStreamProvider);
     final filter = ref.watch(noteFilterProvider);
     final notebooks = ref.watch(notebooksProvider).valueOrNull ?? [];

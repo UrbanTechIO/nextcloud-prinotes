@@ -2,6 +2,9 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:package_info_plus/package_info_plus.dart';
+import '../../todo/reminders/reminder_settings.dart';
+import '../../update/update_checker.dart';
+import '../../update/update_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:go_router/go_router.dart';
@@ -28,6 +31,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   String _serverUrl = '';
   String _username = '';
   ThemeMode _themeMode = ThemeMode.system;
+  bool? _ncReminders; // null: not loaded / offline
+  bool _checkingUpdate = false;
 
   @override
   void initState() {
@@ -42,6 +47,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final username = await _storage.read(key: AppConstants.usernameKey);
     final hasBio = await _localAuth.canCheckBiometrics || await _localAuth.isDeviceSupported();
     final themeMode = ref.read(themeModeProvider);
+
+    ReminderSettings(ref.read(apiClientProvider)).loadNextcloudReminders().then((v) {
+      if (mounted) setState(() => _ncReminders = v);
+    });
 
     setState(() {
       _lockEnabled = lockEnabled == 'true';
@@ -112,6 +121,27 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             ),
           ],
 
+          // Reminders
+          _sectionHeader('Reminders'),
+          SwitchListTile(
+            secondary: const Icon(Icons.notifications_active_outlined),
+            title: const Text('Also notify through Nextcloud'),
+            subtitle: Text(_ncReminders == null
+                ? 'Needs a connection to the server'
+                : 'To-Do reminders always come from PriNotes. Turn this off to stop the extra notification in the Nextcloud app.'),
+            value: _ncReminders ?? true,
+            onChanged: _ncReminders == null
+                ? null
+                : (v) async {
+                    setState(() => _ncReminders = v);
+                    final ok = await ReminderSettings(ref.read(apiClientProvider)).saveNextcloudReminders(v);
+                    if (!ok && mounted) {
+                      setState(() => _ncReminders = !v);
+                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not save. Check your connection')));
+                    }
+                  },
+          ),
+
           // Appearance
           _sectionHeader('Appearance'),
           _themeOption(glass, ThemeStyle.classic, 'Classic', 'Navy, solid', const Color(0xFF1E293B)),
@@ -157,6 +187,28 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       ref.read(themeModeProvider.notifier).state = mode;
                     },
             ),
+          ),
+
+          // Updates
+          _sectionHeader('Updates'),
+          ListTile(
+            leading: _checkingUpdate
+                ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2))
+                : const Icon(Icons.system_update_outlined),
+            title: const Text('Check for updates'),
+            subtitle: Text(ref.watch(availableUpdateProvider) != null
+                ? 'Version ${ref.watch(availableUpdateProvider)!.version} is available'
+                : 'Looks for a new release on GitHub'),
+            onTap: _checkingUpdate
+                ? null
+                : () async {
+                    setState(() => _checkingUpdate = true);
+                    try {
+                      await checkForUpdateManually(context, ref);
+                    } finally {
+                      if (mounted) setState(() => _checkingUpdate = false);
+                    }
+                  },
           ),
 
           // About

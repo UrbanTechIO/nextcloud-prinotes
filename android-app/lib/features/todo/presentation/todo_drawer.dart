@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import '../../../core/theme/glass.dart';
+import '../../../core/widgets/app_sidebar.dart';
 import '../../../data/local/database.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../notes/providers/notes_provider.dart' show NoteFilter, noteFilterProvider;
@@ -9,19 +9,28 @@ import '../data/todo_repository.dart';
 import '../providers/todo_provider.dart';
 import 'todo_list_form.dart';
 
-class TodoDrawer extends ConsumerWidget {
+/// The To-Do sidebar: a Notes / To-Do switch, four smart-list tiles with counts, the categories as
+/// plain rows (sub-categories fold under their parent), and a bottom bar.
+class TodoDrawer extends ConsumerStatefulWidget {
   const TodoDrawer({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<TodoDrawer> createState() => _TodoDrawerState();
+}
+
+class _TodoDrawerState extends ConsumerState<TodoDrawer> {
+  final _expanded = <int>{};
+
+  @override
+  Widget build(BuildContext context) {
     final todos = ref.watch(todosProvider).valueOrNull ?? [];
     final lists = ref.watch(todoListsProvider).valueOrNull ?? [];
     final view = ref.watch(todoViewProvider);
-    final auth = ref.watch(authStateProvider);
     final today = localDateString();
 
     int count(TodoViewSel s) => openTodosFor(todos, lists, s, today).length;
     final top = lists.where((l) => l.parentLocalId == null).toList();
+    List<TodoList> kids(TodoList l) => lists.where((c) => c.parentLocalId == l.id).toList();
 
     void goView(TodoViewSel s) {
       ref.read(todoViewProvider.notifier).state = s;
@@ -34,101 +43,84 @@ class TodoDrawer extends ConsumerWidget {
       context.go('/');
     }
 
-    Widget smart(String key, String label, IconData icon, Color color) => ListTile(
-          dense: true,
-          contentPadding: const EdgeInsets.only(left: 28, right: 16),
-          leading: Icon(icon, size: 18, color: color),
-          title: Text(label),
-          trailing: Text('${count(TodoViewSel.smart(key))}', style: const TextStyle(fontSize: 12)),
+    Widget smart(String key, String label, IconData icon, Color color) => SidebarTile(
+          icon: icon,
+          iconColor: color,
+          label: label,
+          count: count(TodoViewSel.smart(key)),
           selected: view.smart == key,
           onTap: () => goView(TodoViewSel.smart(key)),
         );
 
-    Widget listTile(TodoList l, {required bool child}) => ListTile(
-          dense: true,
-          contentPadding: EdgeInsets.only(left: child ? 52 : 28, right: 4),
-          leading: CircleAvatar(radius: 6, backgroundColor: todoColor(l.color)),
-          title: Text(l.title),
-          selected: view.listId == l.id,
-          trailing: Row(mainAxisSize: MainAxisSize.min, children: [
-            if (!child && !l.isSystem)
-              IconButton(
-                icon: const Icon(Icons.add, size: 18),
-                tooltip: 'New sub-category',
-                onPressed: () => showTodoListDialog(context, ref, parentLocalId: l.id),
-              ),
-            IconButton(
-              icon: const Icon(Icons.edit_outlined, size: 16),
-              tooltip: 'Edit',
-              onPressed: () => showTodoListDialog(context, ref, list: l),
-            ),
-            Text('${count(TodoViewSel.list(l.id))}', style: const TextStyle(fontSize: 12)),
-            const SizedBox(width: 8),
-          ]),
-          onTap: () => goView(TodoViewSel.list(l.id)),
-        );
+    void actions(TodoList l) => showSidebarActions(context, title: l.title, actions: [
+          SidebarAction(Icons.edit_outlined, 'Edit', () => showTodoListDialog(context, ref, list: l)),
+          if (l.parentLocalId == null && !l.isSystem)
+            SidebarAction(Icons.add, 'Add sub-category', () => showTodoListDialog(context, ref, parentLocalId: l.id)),
+        ]);
 
-    final glass = ref.watch(glassProvider);
-    return Drawer(
-      elevation: glass.glass ? 0 : null,
-      width: 280,
-      child: GlassDrawerBody(child: ListView(padding: EdgeInsets.zero, children: [
-        DrawerAccountHeader(
-          name: auth.username ?? 'PriNotes',
-          subtitle: auth.serverUrl ?? '',
-          icon: Icons.task_alt_rounded,
+    Widget row(TodoList l, {required bool child}) {
+      final children = child ? <TodoList>[] : kids(l);
+      final open = _expanded.contains(l.id) || (view.listId != null && children.any((c) => c.id == view.listId));
+      Widget? arrow;
+      if (!child) {
+        arrow = children.isEmpty
+            ? const SizedBox(width: 20)
+            : InkResponse(
+                radius: 18,
+                onTap: () => setState(() => open ? _expanded.remove(l.id) : _expanded.add(l.id)),
+                child: Icon(open ? Icons.expand_more : Icons.chevron_right, size: 20),
+              );
+      }
+      return SidebarRow(
+        indent: child ? 30 : 0,
+        leading: Row(mainAxisSize: MainAxisSize.min, children: [
+          if (arrow != null) ...[arrow, const SizedBox(width: 4)],
+          SidebarDot(todoColor(l.color)),
+        ]),
+        title: Text(
+          l.title + (!child && !open && children.isNotEmpty ? '  · ${children.length} sub' : ''),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
         ),
-        ...[
-            ListTile(leading: const Icon(Icons.notes_rounded), title: const Text('All Notes'), onTap: () => goNotes(const NoteFilter())),
-            ListTile(leading: const Icon(Icons.archive_outlined), title: const Text('Archived'), onTap: () => goNotes(const NoteFilter(archived: true))),
-            ListTile(
-              leading: const Icon(Icons.task_alt_rounded),
-              title: const Text('To-Do'),
-              selected: true,
-              trailing: Text('${count(const TodoViewSel.smart('all'))}'),
-              onTap: () => Navigator.pop(context),
-            ),
-            ListTile(leading: const Icon(Icons.delete_outline_rounded), title: const Text('Trash'), onTap: () => goNotes(const NoteFilter(trashed: true))),
-            const Divider(),
-            ListTile(
-              leading: const Icon(Icons.checklist_rounded),
-              title: const Text('To-Do lists'),
-              trailing: IconButton(
-                icon: const Icon(Icons.add, size: 20),
-                tooltip: 'New category',
-                onPressed: () => showTodoListDialog(context, ref),
-              ),
-            ),
-            smart('today', 'Today', Icons.today_rounded, const Color(0xFF8B5CF6)),
-            smart('important', 'Important', Icons.star_rounded, Colors.amber),
-            smart('planned', 'Planned', Icons.event_rounded, const Color(0xFF22C55E)),
-            smart('all', 'All tasks', Icons.all_inbox_rounded, Colors.grey),
-            const Divider(indent: 28),
-            for (final l in top) ...[
-              listTile(l, child: false),
-              for (final c in lists.where((x) => x.parentLocalId == l.id)) listTile(c, child: true),
-            ],
+        count: count(TodoViewSel.list(l.id)),
+        selected: view.listId == l.id,
+        onTap: () => goView(TodoViewSel.list(l.id)),
+        onLongPress: () => actions(l),
+      );
+    }
+
+    return AppSidebar(
+      mode: SidebarMode.todo,
+      onNotes: () => goNotes(const NoteFilter()),
+      onTodo: () => Navigator.pop(context),
+      content: [
+        SidebarTileGrid(tiles: [
+          smart('today', 'Today', Icons.today_rounded, const Color(0xFF8B5CF6)),
+          smart('important', 'Important', Icons.star_rounded, Colors.amber),
+          smart('planned', 'Planned', Icons.event_rounded, const Color(0xFF22C55E)),
+          smart('all', 'All tasks', Icons.all_inbox_rounded, Colors.grey),
+        ]),
+        SidebarSection('Categories', onAdd: () => showTodoListDialog(context, ref)),
+        for (final l in top) ...[
+          row(l, child: false),
+          if (_expanded.contains(l.id) || (view.listId != null && kids(l).any((c) => c.id == view.listId)))
+            for (final c in kids(l)) row(c, child: true),
         ],
-        const Divider(),
-        ListTile(
-          leading: const Icon(Icons.settings_outlined),
-          title: const Text('Settings'),
-          onTap: () {
-            Navigator.pop(context);
-            context.push('/settings');
-          },
-        ),
-        ListTile(
-          leading: const Icon(Icons.lock_outline),
-          title: const Text('Lock app'),
-          onTap: () {
-            Navigator.pop(context);
-            ref.read(authStateProvider.notifier).lock();
-            context.go('/lock');
-          },
-        ),
-        const SizedBox(height: 8),
-      ])),
+        const SizedBox(height: 4),
+      ],
+      bar: [
+        SidebarBarItem(Icons.archive_outlined, 'Archive', () => goNotes(const NoteFilter(archived: true))),
+        SidebarBarItem(Icons.delete_outline_rounded, 'Trash', () => goNotes(const NoteFilter(trashed: true))),
+        SidebarBarItem(Icons.settings_outlined, 'Settings', () {
+          Navigator.pop(context);
+          context.push('/settings');
+        }),
+        SidebarBarItem(Icons.lock_outline, 'Lock', () {
+          Navigator.pop(context);
+          ref.read(authStateProvider.notifier).lock();
+          context.go('/lock');
+        }),
+      ],
     );
   }
 }

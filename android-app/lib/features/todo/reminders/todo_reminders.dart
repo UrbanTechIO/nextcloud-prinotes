@@ -21,6 +21,19 @@ class TodoReminders {
   static final FlutterLocalNotificationsPlugin _plugin = FlutterLocalNotificationsPlugin();
   static bool _ready = false;
 
+  /// Set by main(): opens the To-Do page for a task when its reminder notification is tapped.
+  static void Function(int? taskId)? onOpenTask;
+
+  /// Task id of the reminder the app was launched from (app was closed and the notification was tapped).
+  static Future<int?> launchTaskId() async {
+    await init();
+    final d = await _plugin.getNotificationAppLaunchDetails();
+    if (d?.didNotificationLaunchApp != true) return null;
+    final r = d!.notificationResponse;
+    if (r == null || (r.actionId != null && r.actionId!.isNotEmpty)) return null;
+    return int.tryParse(r.payload ?? '');
+  }
+
   static Future<void> init() async {
     if (_ready) return;
     tz_data.initializeTimeZones();
@@ -100,7 +113,11 @@ class TodoReminders {
   static Future<void> handleResponse(NotificationResponse r) async {
     final id = int.tryParse(r.payload ?? '');
     if (id == null) return;
-    if (r.actionId != _actionDone && r.actionId != _actionSnooze) return;
+    if (r.actionId != _actionDone && r.actionId != _actionSnooze) {
+      // A plain tap on the notification body: open the To-Do page on that task's category.
+      if (r.notificationResponseType == NotificationResponseType.selectedNotification) onOpenTask?.call(id);
+      return;
+    }
 
     final db = AppDatabase();
     try {

@@ -6,6 +6,8 @@ namespace OCA\PriNotes\BackgroundJob;
 
 use OCA\PriNotes\Db\Todo;
 use OCA\PriNotes\Db\TodoMapper;
+use OCA\PriNotes\Service\SettingsService;
+use OCA\PriNotes\Service\TodoReminderPolicy;
 use OCA\PriNotes\Service\TodoService;
 use OCP\AppFramework\Utility\ITimeFactory;
 use OCP\BackgroundJob\TimedJob;
@@ -17,6 +19,7 @@ class SendTodoRemindersJob extends TimedJob {
         private TodoMapper           $mapper,
         private TodoService          $todoService,
         private INotificationManager $notificationManager,
+        private SettingsService      $settings,
     ) {
         parent::__construct($time);
         $this->setInterval(60);
@@ -25,7 +28,11 @@ class SendTodoRemindersJob extends TimedJob {
     protected function run(mixed $argument): void {
         foreach ($this->mapper->findDueReminders(time()) as $todo) {
             try {
-                $this->notify($todo);
+                // Users who get reminders from the Android app switch the Nextcloud notification off.
+                $setting = $this->settings->get($todo->getUserId(), 'todo_nextcloud_notifications');
+                if (TodoReminderPolicy::sendNextcloudNotification($setting)) {
+                    $this->notify($todo);
+                }
             } finally {
                 // Mark sent even if notifying failed, so one bad row cannot spam every minute.
                 $this->todoService->markReminderSent($todo);

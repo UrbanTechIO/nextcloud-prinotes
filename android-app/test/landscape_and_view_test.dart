@@ -84,8 +84,8 @@ void main() {
       testWidgets('${entry.key} drawer: the last item can be scrolled into view, no overflow', (tester) async {
         await pump(tester, entry.value);
         expect(tester.takeException(), isNull);
-        await tester.scrollUntilVisible(find.text('Lock app'), 120, scrollable: find.descendant(of: find.byType(Drawer), matching: find.byType(Scrollable)).first);
-        expect(find.text('Lock app'), findsOneWidget);
+        await tester.scrollUntilVisible(find.text('Lock'), 120, scrollable: find.descendant(of: find.byType(Drawer), matching: find.byType(Scrollable)).first);
+        expect(find.text('Lock'), findsOneWidget);
         // Let drift's stream clean-up timers run before the test ends.
         await tester.pumpWidget(const SizedBox());
         await tester.pump(const Duration(seconds: 1));

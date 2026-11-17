@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import '../../../core/router/app_router.dart' show pendingRouteProvider;
 import '../providers/auth_provider.dart';
 
 class LockScreen extends ConsumerStatefulWidget {
@@ -38,8 +39,12 @@ class _LockScreenState extends ConsumerState<LockScreen> {
 
   Future<void> _tryBiometric() async {
     final ok = await ref.read(authStateProvider.notifier).authenticateWithBiometric();
-    if (ok && mounted) context.go('/');
+    if (ok && mounted) context.go(_afterUnlock());
   }
+
+  /// The page a widget or notification tap asked for while the app was locked, else the notes list.
+  /// Only reads it: unlocking rebuilds the router, and the router's own redirect uses and then clears it.
+  String _afterUnlock() => ref.read(pendingRouteProvider).value ?? '/';
 
   @override
   Widget build(BuildContext context) {
@@ -179,7 +184,7 @@ class _LockScreenState extends ConsumerState<LockScreen> {
     final ok = await ref.read(authStateProvider.notifier).authenticateWithPin(pin);
 
     if (ok && mounted) {
-      context.go('/');
+      context.go(_afterUnlock());
     } else {
       setState(() {
         _pin.clear();

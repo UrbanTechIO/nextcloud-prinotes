@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- Where the app saves a downloaded update before handing it to the Android installer. -->
+    <cache-path name="updates" path="updates/" />
+</paths>
