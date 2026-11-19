@@ -4,7 +4,7 @@ import 'package:go_router/go_router.dart';
 import '../../../core/widgets/app_sidebar.dart';
 import '../../../data/local/database.dart';
 import '../../auth/providers/auth_provider.dart';
-import '../../notes/providers/notes_provider.dart' show NoteFilter, noteFilterProvider;
+import '../../notes/providers/notes_provider.dart' show NoteFilter, noteFilterProvider, trashCountProvider;
 import '../data/todo_repository.dart';
 import '../providers/todo_provider.dart';
 import 'todo_list_form.dart';
@@ -110,7 +110,8 @@ class _TodoDrawerState extends ConsumerState<TodoDrawer> {
       ],
       bar: [
         SidebarBarItem(Icons.archive_outlined, 'Archive', () => goNotes(const NoteFilter(archived: true))),
-        SidebarBarItem(Icons.delete_outline_rounded, 'Trash', () => goNotes(const NoteFilter(trashed: true))),
+        SidebarBarItem(Icons.delete_outline_rounded, 'Trash', () => goNotes(const NoteFilter(trashed: true)),
+            count: ref.watch(trashCountProvider).valueOrNull ?? 0),
         SidebarBarItem(Icons.settings_outlined, 'Settings', () {
           Navigator.pop(context);
           context.push('/settings');

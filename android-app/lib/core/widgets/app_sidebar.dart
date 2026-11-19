@@ -17,7 +17,9 @@ class SidebarBarItem {
   final IconData icon;
   final String label;
   final VoidCallback onTap;
-  const SidebarBarItem(this.icon, this.label, this.onTap);
+  /// A number shown on the icon when above zero (for example the notes in the trash).
+  final int count;
+  const SidebarBarItem(this.icon, this.label, this.onTap, {this.count = 0});
 }
 
 /// The shared sidebar frame: account header, Notes / To-Do switch, [content], and a bottom bar.
@@ -314,7 +316,11 @@ class SidebarBar extends StatelessWidget {
                 child: Padding(
                   padding: const EdgeInsets.symmetric(vertical: 6),
                   child: Column(mainAxisSize: MainAxisSize.min, children: [
-                    Icon(i.icon, size: 22, color: scheme.onSurface.withOpacity(0.75)),
+                    Badge(
+                      isLabelVisible: i.count > 0,
+                      label: Text('${i.count}'),
+                      child: Icon(i.icon, size: 22, color: scheme.onSurface.withOpacity(0.75)),
+                    ),
                     const SizedBox(height: 2),
                     Text(i.label,
                         maxLines: 1,

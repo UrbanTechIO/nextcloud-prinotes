@@ -52,7 +52,8 @@ class SidebarDrawer extends ConsumerWidget {
         const SizedBox(height: 4),
       ],
       bar: [
-        SidebarBarItem(Icons.delete_outline_rounded, 'Trash', () => _selectTrash(ref, context)),
+        SidebarBarItem(Icons.delete_outline_rounded, 'Trash', () => _selectTrash(ref, context),
+            count: ref.watch(trashCountProvider).valueOrNull ?? 0),
         SidebarBarItem(Icons.settings_outlined, 'Settings', () {
           Navigator.pop(context);
           context.push('/settings');

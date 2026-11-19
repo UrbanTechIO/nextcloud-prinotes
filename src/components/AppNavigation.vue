@@ -40,6 +40,7 @@
       <li class="nav-item" :class="{ active: store.showTrash && !onTodo }" @click="selectTrash">
         <Delete :size="18" />
         <span>Trash</span>
+        <span v-if="store.trashCount > 0" class="nav-counter">{{ store.trashCount }}</span>
       </li>
     </ul>
 

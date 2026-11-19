@@ -18,6 +18,7 @@ export const useNotesStore = defineStore('notes', () => {
   const showArchived = ref(false)
   const showTrash = ref(false)
   const searchQuery = ref('')
+  const trashCount = ref(0)
 
   // ── Computed ─────────────────────────────────────────────────────────────
   const filteredNotes = computed(() => {
@@ -58,6 +59,22 @@ export const useNotesStore = defineStore('notes', () => {
       error.value = e.message
     } finally {
       loading.value = false
+    }
+    if (showTrash.value && searchQuery.value.length < 2 && activeNotebookId.value === null && activeTagId.value === null) {
+      trashCount.value = notes.value.length
+    } else {
+      refreshTrashCount()
+    }
+  }
+
+  /** How many notes are in the trash, for the side menu. */
+  async function refreshTrashCount() {
+    try {
+      const { data } = await axios.get(api('/notes'), { params: { trashed: true } })
+      const list = data.ocs?.data ?? data
+      if (Array.isArray(list)) trashCount.value = list.length
+    } catch (e) {
+      // keep the last known count
     }
   }
 
@@ -123,17 +140,20 @@ export const useNotesStore = defineStore('notes', () => {
   async function trashNote(id) {
     await axios.delete(api(`/notes/${id}`))
     notes.value = notes.value.filter(n => n.id !== id)
+    refreshTrashCount()
   }
 
   async function deleteNotePermanently(id) {
     await axios.delete(api(`/notes/${id}`), { params: { force: true } })
     notes.value = notes.value.filter(n => n.id !== id)
+    refreshTrashCount()
   }
 
   async function restoreNote(id) {
     const { data } = await axios.post(api(`/notes/${id}/restore`))
     const note = data.ocs?.data ?? data
     notes.value = notes.value.filter(n => n.id !== id)
+    refreshTrashCount()
     return note
   }
 
@@ -255,9 +275,9 @@ export const useNotesStore = defineStore('notes', () => {
 
   return {
     notes, notebooks, tags, reminders, settings, loading, error,
-    activeNotebookId, activeTagId, showArchived, showTrash, searchQuery,
+    activeNotebookId, activeTagId, showArchived, showTrash, searchQuery, trashCount,
     filteredNotes, pinnedNotes, unpinnedNotes,
-    fetchNotes, getNote, peekNote, createNote, updateNote, trashNote, deleteNotePermanently,
+    fetchNotes, refreshTrashCount, getNote, peekNote, createNote, updateNote, trashNote, deleteNotePermanently,
     restoreNote, getVersions, restoreVersion,
     fetchNotebooks, createNotebook, updateNotebook, deleteNotebook,
     fetchTags, createTag, updateTag, deleteTag,

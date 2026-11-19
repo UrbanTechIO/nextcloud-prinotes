@@ -2,6 +2,13 @@
 
 All notable changes to PriNotes are documented here.
 
+## [1.2.7] – 2026-11-19
+
+Web app and Android app.
+
+### Added
+- **Trash count.** The number of notes in the trash is shown next to Trash in the web side menu, and as a badge on the Trash icon in the Android sidebars (Notes and To-Do). Nothing is shown when the trash is empty. It updates when you trash, restore or permanently delete a note.
+
 ## [1.2.6] – 2026-11-19
 
 Web app and Android app. The Nextcloud app (store) version moves from 1.2.3 to 1.2.6 and now also carries the reminder switch from 1.2.5.
