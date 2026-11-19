@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import '../../data/font_sizes.dart';
 import 'package:flutter_colorpicker/flutter_colorpicker.dart';
 import 'package:flutter_quill/flutter_quill.dart';
 
@@ -41,9 +42,13 @@ class NotePageEditorState extends State<NotePageEditor> {
 
   // Drawing state
   late List<_Stroke> _strokes;
+  // Width of the page the strokes are drawn on; saved with them so the web app can scale the drawing.
+  double _pageWidth = 0;
   _Stroke? _currentStroke;
   final List<_Stroke> _undoStack = [];
   Color _penColor = Colors.black;
+  // True once the user picks a pen colour; until then the pen follows the theme (white on dark, black on light).
+  bool _penColorChosen = false;
   double _penWidth = 4.0;
   bool _isEraser = false;
 
@@ -247,7 +252,7 @@ class NotePageEditorState extends State<NotePageEditor> {
       final rawDelta = content['delta'] as List?;
       // Sanitize ops: replace unregistered embed types (e.g. divider) with a
       // plain text equivalent so Document.fromJson doesn't throw.
-      final delta = rawDelta?.map((op) {
+      final cleaned = rawDelta?.map<Map<String, dynamic>>((op) {
         final m = Map<String, dynamic>.from(op as Map);
         final insert = m['insert'];
         if (insert is Map) {
@@ -261,6 +266,8 @@ class NotePageEditorState extends State<NotePageEditor> {
         }
         return m;
       }).toList();
+      // Sizes saved by older web versions ("28px") are read in the phone's form ("28").
+      final delta = cleaned == null ? null : normalizeFontSizes(cleaned);
       _qCtrl = QuillController(
         document: delta != null ? Document.fromJson(delta) : Document(),
         selection: const TextSelection.collapsed(offset: 0),
@@ -413,6 +420,7 @@ class NotePageEditorState extends State<NotePageEditor> {
                   'eraser': s.isEraser,
                 })
             .toList(),
+        if (_strokes.isNotEmpty && _pageWidth > 0) 'strokesWidth': _pageWidth,
       };
 
   // ── Public API ─────────────────────────────────────────────────────────────
@@ -592,6 +600,7 @@ class NotePageEditorState extends State<NotePageEditor> {
             onPressed: () {
               setState(() {
                 _penColor = picked;
+                _penColorChosen = true;
                 _isEraser = false;
               });
               Navigator.pop(ctx);
@@ -604,6 +613,14 @@ class NotePageEditorState extends State<NotePageEditor> {
   }
 
   // ── Build ──────────────────────────────────────────────────────────────────
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!_penColorChosen) {
+      _penColor = Theme.of(context).brightness == Brightness.dark ? Colors.white : Colors.black;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -951,7 +968,9 @@ class NotePageEditorState extends State<NotePageEditor> {
 
   Widget _buildEditorArea() {
     final inDraw = _mode == _EditorMode.draw;
-    return Stack(
+    return LayoutBuilder(builder: (context, constraints) {
+      _pageWidth = constraints.maxWidth;
+      return Stack(
       children: [
         // Quill editor with pinch-to-zoom.
         // Listener (translucent) clears image selection on any pointer-down that
@@ -1048,6 +1067,7 @@ class NotePageEditorState extends State<NotePageEditor> {
           ),
       ],
     );
+    });
   }
 
   // ── Helpers ────────────────────────────────────────────────────────────────

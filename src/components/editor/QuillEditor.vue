@@ -13,13 +13,13 @@
           <option value="3">H3</option>
           <option selected>P</option>
         </select>
-        <select class="ql-prinotes-size" title="Font size">
+        <select class="ql-size ql-prinotes-size" title="Font size">
           <option selected></option>
-          <option value="12px">12</option>
-          <option value="15px">15</option>
-          <option value="18px">18</option>
-          <option value="22px">22</option>
-          <option value="28px">28</option>
+          <option value="12">12</option>
+          <option value="15">15</option>
+          <option value="18">18</option>
+          <option value="22">22</option>
+          <option value="28">28</option>
         </select>
       </span>
       <span class="ql-formats">
@@ -47,21 +47,43 @@
       </span>
       <span class="ql-formats">
         <button class="ql-image" title="Insert image" @click="onInsertImage" />
-        <button class="ql-prinotes-draw" title="Insert drawing" @click="onOpenDrawing">✎</button>
+        <button class="ql-prinotes-draw" :class="{ 'pn-active': drawMode }" title="Draw on the page" aria-label="Draw on the page" @click="toggleDraw">✎</button>
         <button class="ql-prinotes-divider" title="Insert divider" @click="onInsertDivider">—</button>
       </span>
     </div>
 
+    <!-- Drawing tools: the strokes are saved exactly like the phone saves them -->
+    <div v-if="drawMode" class="draw-bar">
+      <button type="button" :class="{ on: !eraser }" @click="eraser = false">Pen</button>
+      <button type="button" :class="{ on: eraser }" @click="eraser = true">Eraser</button>
+      <input v-model="penColor" type="color" :disabled="eraser" aria-label="Pen colour" @input="penColorTouched = true" />
+      <input v-model.number="penWidth" type="range" min="1" max="24" aria-label="Pen size" />
+      <span class="draw-size">{{ penWidth }}</span>
+      <button type="button" :disabled="!strokeCount" @click="undoStroke">Undo</button>
+      <button type="button" :disabled="!strokeCount" @click="clearStrokes">Clear</button>
+      <button type="button" class="done" @click="toggleDraw">Done</button>
+    </div>
+
     <!-- Quill target -->
-    <div :id="'ql-container-' + uid" class="ql-target" />
+    <div class="ql-stage">
+      <div :id="'ql-container-' + uid" class="ql-target" />
+      <!-- Freehand drawings made in the Android app, drawn over the text -->
+      <canvas
+        ref="strokeCanvas"
+        class="stroke-layer"
+        :class="{ drawing: drawMode }"
+        aria-hidden="true"
+        @pointerdown="onPointerDown"
+        @pointermove="onPointerMove"
+        @pointerup="onPointerUp"
+        @pointercancel="onPointerUp"
+        @wheel.prevent="onWheel"
+      />
+    </div>
 
     <!-- Hidden file input for image picker -->
     <input ref="fileInput" type="file" accept="image/*" style="display:none" @change="onImagePicked" />
 
-    <!-- Drawing overlay -->
-    <div v-if="showDrawing" class="drawing-overlay">
-      <DrawingCanvas :initial-data="drawingInitialData" @save="onDrawingSave" @close="showDrawing = false" />
-    </div>
   </div>
 </template>
 
@@ -77,7 +99,8 @@
  *      version: 'quill-1.0',
  *      delta:   [...Quill delta ops...],
  *      images:  { key: { data: 'data:image/...', width, height, rotation } },
- *      strokes: [...]   // reserved for future canvas-drawing use
+ *      strokes: [...]   // freehand drawing from the Android app: drawn over the text and kept on save
+ *      strokesWidth     // page width (Android units) the drawing was made on
  *    }
  *
  *  Custom pieces registered with Quill:
@@ -100,7 +123,9 @@
 import { ref, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import Quill from 'quill'
 import 'quill/dist/quill.snow.css'
-import DrawingCanvas from './DrawingCanvas.vue'
+import { drawStrokes, referenceWidth, strokesBottom, parseRgb, rgbToHex, toReferencePoint, makeStroke, nextStrokesWidth } from '../../composables/strokes'
+import { buildNoteJson } from '../../composables/noteContent'
+import { FONT_SIZES, toPxSize, fromPxSize } from '../../composables/fontSize'
 
 const props = defineProps({
   modelValue: { type: String, default: '' },
@@ -112,9 +137,19 @@ let quill = null
 let internalUpdate = false     // set while WE mutate the doc, so text-change doesn't re-emit
 let imagesMap = {}             // key -> { data, width, height, rotation }
 let imgCounter = 0
+let strokesData = []           // Android freehand strokes: shown and preserved, never edited here
+let strokesWidth = 0           // page width those strokes were drawn on (0 = unknown)
+let strokeObserver = null
+const strokeCanvas = ref(null)
 
-const showDrawing = ref(false)
-const drawingInitialData = ref(null)
+// Drawing mode: freehand strokes saved the same way the Android app saves them.
+const drawMode = ref(false)
+const eraser = ref(false)
+const penColor = ref('#000000')
+let penColorTouched = false      // the user picked a colour themselves: keep it
+const penWidth = ref(4)
+const strokeCount = ref(0)
+let liveStroke = null           // the stroke being drawn right now: { points }
 const fileInput = ref(null)
 
 // ── Custom formats / blots ────────────────────────────────────────────────
@@ -124,9 +159,21 @@ if (!Quill.__prinotesRegistered) {
   Quill.__prinotesRegistered = true
 
   // Numeric px font size — accept exactly the sizes the mobile toolbar uses.
-  const SizeStyle = Quill.import('attributors/style/size')
-  SizeStyle.whitelist = ['12px', '15px', '18px', '22px', '28px']
-  Quill.register(SizeStyle, true)
+  // The phone stores "28", the CSS needs "28px": this format reads and writes the phone's form, and still
+  // accepts "28px" from notes saved by older web versions.
+  const Parchment = Quill.import('parchment')
+  class PhoneSizeStyle extends Parchment.StyleAttributor {
+    canAdd(node, value) { return super.canAdd(node, toPxSize(value)) }
+    add(node, value) { return super.add(node, toPxSize(value)) }
+    value(node) { return fromPxSize(super.value(node)) }
+  }
+  Quill.register(
+    new PhoneSizeStyle('size', 'font-size', {
+      scope: Parchment.Scope.INLINE,
+      whitelist: FONT_SIZES.map((n) => `${n}px`),
+    }),
+    true,
+  )
 
   // Explicit alignments (right/center/justify) so they round-trip if mobile
   // ever adds them.
@@ -167,7 +214,7 @@ if (!Quill.__prinotesRegistered) {
 
 // ── Content parsing (input) ───────────────────────────────────────────────
 function parseIncoming(raw) {
-  const out = { delta: [], images: {}, strokes: [] }
+  const out = { delta: [], images: {}, strokes: [], strokesWidth: 0 }
   if (!raw) return out
   try {
     const parsed = JSON.parse(raw)
@@ -175,6 +222,7 @@ function parseIncoming(raw) {
       out.delta   = Array.isArray(parsed.delta) ? parsed.delta : []
       out.images  = parsed.images  ?? {}
       out.strokes = parsed.strokes ?? []
+      out.strokesWidth = Number(parsed.strokesWidth) || 0
       return out
     }
     if (parsed.version === '2.0') return migrateV2(parsed)
@@ -210,7 +258,7 @@ function migrateV2(parsed) {
     ops.push({ insert: { image: key } })
     ops.push({ insert: '\n' })
   }
-  return { delta: ops, images, strokes: parsed.strokes ?? [] }
+  return { delta: ops, images, strokes: parsed.strokes ?? [], strokesWidth: Number(parsed.strokesWidth) || 0 }
 }
 
 function migrateWebBlocks(parsed) {
@@ -245,24 +293,74 @@ function migrateWebBlocks(parsed) {
 // ── Content serialization (output) ────────────────────────────────────────
 function serialize() {
   if (!quill) return props.modelValue
-  const contents = quill.getContents()
-  // Prune image keys no longer referenced in the delta (defensive)
-  const referenced = new Set()
-  for (const op of contents.ops) {
-    if (op.insert && typeof op.insert === 'object' && op.insert.image) {
-      referenced.add(op.insert.image)
+  return buildNoteJson({
+    delta: quill.getContents().ops,
+    images: imagesMap,
+    strokes: strokesData,
+    strokesWidth,
+  })
+}
+
+// ── Android freehand drawing layer ────────────────────────────────────────
+function scrollHost() {
+  return document.getElementById(`ql-container-${uid}`)
+}
+
+/** The page's background and text colours, so ink that would vanish on it can be shown readably. */
+function pageColors(host) {
+  let bg = [255, 255, 255]
+  for (let el = host; el; el = el.parentElement) {
+    const c = parseRgb(getComputedStyle(el).backgroundColor)
+    if (c && c[3] > 0.5) {
+      bg = [c[0], c[1], c[2]]
+      break
     }
   }
-  const cleanedImages = {}
-  for (const [k, v] of Object.entries(imagesMap)) {
-    if (referenced.has(k)) cleanedImages[k] = v
+  const t = quill ? parseRgb(getComputedStyle(quill.root).color) : null
+  const fg = t ? [t[0], t[1], t[2]] : (bg[0] + bg[1] + bg[2] > 382 ? [30, 30, 30] : [235, 235, 235])
+  return { background: bg, foreground: fg }
+}
+
+/** Draws the strokes over the visible part of the editor, scaled to its width. */
+function redrawStrokes() {
+  const canvas = strokeCanvas.value
+  const host = scrollHost()
+  if (!canvas || !host) return
+  const w = host.clientWidth
+  const h = host.clientHeight
+  const dpr = window.devicePixelRatio || 1
+  canvas.style.left = (host.offsetLeft + host.clientLeft) + 'px'
+  canvas.style.top = (host.offsetTop + host.clientTop) + 'px'
+  if (canvas.style.width !== w + 'px' || canvas.style.height !== h + 'px') {
+    canvas.width = Math.round(w * dpr)
+    canvas.height = Math.round(h * dpr)
+    canvas.style.width = w + 'px'
+    canvas.style.height = h + 'px'
   }
-  return JSON.stringify({
-    version: 'quill-1.0',
-    delta:   contents.ops,
-    images:  cleanedImages,
-    strokes: [],
-  })
+  const ctx = canvas.getContext('2d')
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+  ctx.clearRect(0, 0, w, h)
+  const live = currentLive()
+  if ((!strokesData.length && !live) || !w) return
+  const scale = w / referenceWidth(strokesData, strokesWidth)
+  drawStrokes(ctx, live ? [...strokesData, live] : strokesData, { scale, offsetY: host.scrollTop, ...pageColors(host) })
+}
+
+/** Makes the page tall enough that the lowest part of the drawing can be scrolled to. */
+function fitEditorToStrokes() {
+  const host = scrollHost()
+  if (!quill || !host) return
+  if (!strokesData.length || !host.clientWidth) {
+    quill.root.style.minHeight = ''
+    return
+  }
+  const scale = host.clientWidth / referenceWidth(strokesData, strokesWidth)
+  quill.root.style.minHeight = Math.max(300, Math.ceil(strokesBottom(strokesData) * scale + 24)) + 'px'
+}
+
+function refreshStrokes() {
+  fitEditorToStrokes()
+  redrawStrokes()
 }
 
 // ── Rendering image embeds ────────────────────────────────────────────────
@@ -318,17 +416,93 @@ function onInsertDivider() {
   quill.setSelection(range.index + 1, 0, Quill.sources.SILENT)
 }
 
-function onOpenDrawing() {
-  drawingInitialData.value = null
-  showDrawing.value = true
+/** Switches the page between writing and drawing. While drawing, typing is off and the pointer draws. */
+function toggleDraw() {
+  drawMode.value = !drawMode.value
+  if (!quill) return
+  quill.enable(!drawMode.value)
+  if (drawMode.value) {
+    quill.blur()
+    // Start in the page's own text colour (white on a dark theme): the colour shown is the colour saved,
+    // so the drawing looks the same on the phone. Unless the user already picked their own.
+    const t = parseRgb(getComputedStyle(quill.root).color)
+    if (t && !penColorTouched) penColor.value = rgbToHex([t[0], t[1], t[2]])
+  }
+  liveStroke = null
+  redrawStrokes()
 }
-function onDrawingSave({ dataUrl }) {
-  showDrawing.value = false
-  const key = `drawing_${Date.now()}_${imgCounter++}`
-  imagesMap[key] = { data: dataUrl, width: null, height: null, rotation: 0 }
-  const range = quill.getSelection(true) || { index: quill.getLength() }
-  quill.insertEmbed(range.index, 'image', key, Quill.sources.USER)
-  quill.setSelection(range.index + 1, 0, Quill.sources.SILENT)
+
+function strokeScale() {
+  const host = scrollHost()
+  return host.clientWidth / referenceWidth(strokesData, strokesWidth)
+}
+
+function pointerPoint(e) {
+  const host = scrollHost()
+  const rect = strokeCanvas.value.getBoundingClientRect()
+  return toReferencePoint(e.clientX - rect.left, e.clientY - rect.top, { scale: strokeScale(), scrollTop: host.scrollTop })
+}
+
+function currentLive() {
+  if (!liveStroke) return null
+  return makeStroke({ points: liveStroke.points, color: penColor.value, width: penWidth.value, eraser: eraser.value })
+}
+
+function onPointerDown(e) {
+  if (!drawMode.value || !quill || e.button > 0) return
+  // The page width is fixed by the first stroke; later strokes are measured against it.
+  strokesWidth = nextStrokesWidth(strokesData, strokesWidth)
+  strokeCanvas.value.setPointerCapture(e.pointerId)
+  liveStroke = { points: [pointerPoint(e)] }
+  redrawStrokes()
+}
+
+let moveFrame = 0
+function onPointerMove(e) {
+  if (!liveStroke) return
+  const p = pointerPoint(e)
+  const last = liveStroke.points[liveStroke.points.length - 1]
+  if (p[0] === last[0] && p[1] === last[1]) return
+  liveStroke.points.push(p)
+  if (!moveFrame) {
+    moveFrame = requestAnimationFrame(() => {
+      moveFrame = 0
+      redrawStrokes()
+    })
+  }
+}
+
+function onPointerUp() {
+  if (!liveStroke) return
+  const stroke = currentLive()
+  liveStroke = null
+  strokesData = [...strokesData, stroke]
+  strokeCount.value = strokesData.length
+  refreshStrokes()
+  emit('update:modelValue', serialize())
+}
+
+function undoStroke() {
+  if (!strokesData.length) return
+  strokesData = strokesData.slice(0, -1)
+  strokeCount.value = strokesData.length
+  refreshStrokes()
+  emit('update:modelValue', serialize())
+}
+
+function clearStrokes() {
+  if (!strokesData.length) return
+  if (!window.confirm('Remove the whole drawing from this note?')) return
+  strokesData = []
+  strokeCount.value = 0
+  refreshStrokes()
+  emit('update:modelValue', serialize())
+}
+
+// The pointer is over the drawing layer, so the wheel would not scroll the page: pass it on.
+function onWheel(e) {
+  const host = scrollHost()
+  if (host) host.scrollTop += e.deltaY
 }
 
 // ── Undo / Redo ───────────────────────────────────────────────────────────
@@ -346,8 +520,11 @@ function redo() { quill?.history.redo(); syncHistory() }
 
 // ── Load content into Quill ───────────────────────────────────────────────
 function loadIntoQuill(raw) {
-  const { delta, images, strokes } = parseIncoming(raw)
+  const { delta, images, strokes, strokesWidth: savedWidth } = parseIncoming(raw)
   imagesMap = { ...images }
+  strokesData = Array.isArray(strokes) ? strokes : []
+  strokesWidth = savedWidth || 0
+  strokeCount.value = strokesData.length
   // Reserve image counter above any existing numeric suffixes to avoid clash
   for (const k of Object.keys(imagesMap)) {
     const m = k.match(/_(\d+)$/)
@@ -357,10 +534,9 @@ function loadIntoQuill(raw) {
   quill.setContents({ ops: delta.length ? delta : [{ insert: '\n' }] }, Quill.sources.SILENT)
   nextTick(() => {
     refreshImageDom()
+    refreshStrokes()
     internalUpdate = false
   })
-  // Strokes are currently untouched (not in scope for v1.1.0 web parity).
-  if (strokes && strokes.length) imagesMap._strokes = strokes
 }
 
 // ── Mount ─────────────────────────────────────────────────────────────────
@@ -375,6 +551,14 @@ onMounted(() => {
   })
 
   loadIntoQuill(props.modelValue)
+  const host = scrollHost()
+  if (host) {
+    host.addEventListener('scroll', redrawStrokes, { passive: true })
+    if (typeof ResizeObserver !== 'undefined') {
+      strokeObserver = new ResizeObserver(() => refreshStrokes())
+      strokeObserver.observe(host)
+    }
+  }
   // Tell the page what the loaded note looks like when this editor writes it out, so it can tell later
   // whether anything really changed.
   emit('ready', serialize())
@@ -392,6 +576,8 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  strokeObserver?.disconnect()
+  scrollHost()?.removeEventListener('scroll', redrawStrokes)
   quill = null
 })
 
@@ -419,6 +605,66 @@ watch(() => props.modelValue, (val) => {
   border-radius: 6px 6px 0 0;
   background: var(--color-main-background) !important;
   flex-shrink: 0;
+  display: flex !important;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 8px !important;
+
+  // Quill's Snow theme uses a dark grey (#444) for icons and text, which is unreadable on a dark Nextcloud
+  // theme. Everything follows the Nextcloud theme colours instead, and every control is the same height.
+  :deep(.ql-formats) {
+    display: inline-flex !important;
+    align-items: center;
+    gap: 2px;
+    margin: 0 10px 0 0 !important;
+  }
+  :deep(button) {
+    width: 32px !important;
+    height: 32px !important;
+    padding: 4px !important;
+    float: none !important;
+    display: inline-flex !important;
+    align-items: center;
+    justify-content: center;
+  }
+  :deep(.ql-stroke) { stroke: var(--color-main-text) !important; }
+  :deep(.ql-fill), :deep(.ql-stroke.ql-fill) { fill: var(--color-main-text) !important; }
+  :deep(button:hover .ql-stroke), :deep(button.ql-active .ql-stroke),
+  :deep(.ql-picker-label:hover .ql-stroke) { stroke: var(--color-primary-element) !important; }
+  :deep(button:hover .ql-fill), :deep(button.ql-active .ql-fill) { fill: var(--color-primary-element) !important; }
+
+  // Text style (P / H1..H3) and font size: a labelled box, same height as the buttons.
+  :deep(.ql-picker) { color: var(--color-main-text) !important; height: 32px !important; font-size: 14px !important; }
+  :deep(.ql-picker.ql-header) { width: 74px !important; }
+  :deep(.ql-picker.ql-prinotes-size) { width: 64px !important; }
+  :deep(.ql-picker.ql-header .ql-picker-label),
+  :deep(.ql-picker.ql-prinotes-size .ql-picker-label) {
+    display: inline-flex !important;
+    align-items: center;
+    height: 32px !important;
+    padding: 0 20px 0 10px !important;
+    border: 1px solid var(--color-border) !important;
+    border-radius: 6px;
+    box-sizing: border-box;
+  }
+  :deep(.ql-picker.ql-header .ql-picker-label::before),
+  :deep(.ql-picker.ql-prinotes-size .ql-picker-label::before) { line-height: 30px !important; }
+  :deep(.ql-picker.ql-header .ql-picker-label::before),
+  :deep(.ql-picker.ql-header .ql-picker-item::before) { content: attr(data-label) !important; }
+  :deep(.ql-picker-label svg) { right: 4px !important; margin-top: -9px !important; }
+  :deep(.ql-picker.ql-color-picker),
+  :deep(.ql-picker.ql-icon-picker) { width: 32px !important; }
+  :deep(.ql-picker.ql-color-picker .ql-picker-label) { padding: 4px !important; width: 32px !important; height: 32px !important; border: 0 !important; }
+  :deep(.ql-picker-options) {
+    background: var(--color-main-background) !important;
+    border: 1px solid var(--color-border) !important;
+    color: var(--color-main-text) !important;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+  }
+  :deep(.ql-picker-item:hover), :deep(.ql-picker-item.ql-selected), :deep(.ql-picker-label:hover) {
+    color: var(--color-primary-element) !important;
+  }
 }
 
 .pn-undo[disabled],
@@ -432,6 +678,21 @@ watch(() => props.modelValue, (val) => {
 :deep(.ql-prinotes-divider) {
   font-size: 1rem;
   line-height: 1;
+}
+
+.ql-stage {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+// Transparent layer over the text for drawings made on the phone; never takes clicks.
+.stroke-layer {
+  position: absolute;
+  pointer-events: none;
+  z-index: 2;
 }
 
 .ql-target {
@@ -520,17 +781,43 @@ watch(() => props.modelValue, (val) => {
 // tiny in dark theme — bump slightly for readability
 :deep(.ql-prinotes-size .ql-picker-label::before),
 :deep(.ql-prinotes-size .ql-picker-item::before) {
-  content: attr(data-value);
+  content: attr(data-value) !important;
+}
+:deep(.ql-prinotes-size .ql-picker-label:not([data-value])::before) {
+  content: '15' !important;
 }
 :deep(.ql-prinotes-size .ql-picker-label[data-value]::before) {
-  content: attr(data-value);
+  content: attr(data-value) !important;
 }
 
 // Drawing overlay
-.drawing-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 100;
-  background: var(--color-main-background);
+.draw-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--color-border);
+  border-top: none;
+  background: var(--color-background-hover);
+  flex-shrink: 0;
+
+  button { padding: 2px 10px; min-height: 30px; }
+  button.on { background: var(--color-primary-element); color: var(--color-primary-element-text); }
+  button.done { margin-left: auto; font-weight: 600; }
+  input[type='color'] { width: 34px; height: 30px; padding: 0; border: 1px solid var(--color-border); border-radius: 6px; cursor: pointer; }
+  input[type='range'] { width: 110px; }
+  .draw-size { min-width: 1.6em; text-align: right; font-size: 0.85rem; }
+}
+
+.stroke-layer.drawing {
+  pointer-events: auto;
+  touch-action: none;
+  cursor: crosshair;
+}
+
+:deep(.ql-prinotes-draw.pn-active) {
+  background: var(--color-primary-element-light, rgba(0, 130, 201, 0.2));
+  border-radius: 4px;
 }
 </style>

@@ -2,6 +2,25 @@
 
 All notable changes to PriNotes are documented here.
 
+## [1.2.6] – 2026-11-19
+
+Web app and Android app. The Nextcloud app (store) version moves from 1.2.3 to 1.2.6 and now also carries the reminder switch from 1.2.5.
+
+### Added
+- **Web: drawing with real lines.** The ✎ button on the editor toolbar now draws freehand on the page, with pen, eraser, colour, size, Undo, Clear and Done. Drawings are saved as the same lines the phone saves, so a drawing made on either side opens and edits on the other. Before, the web drew a picture that was pasted into the note.
+- **Web: drawings from the phone are shown.** They were hidden by the editor and were wiped when a note was saved on the web. They now show, scroll with the text, and survive saving.
+- **Web: font size and text style pickers** match the phone: sizes 12, 15, 18, 22 and 28, labelled boxes in the same height as the other toolbar buttons, and the theme's colours.
+- **Android: the pen starts white on a dark theme** (and black on a light one) instead of always black.
+- The note records the page width the drawing was made on (`strokesWidth`), so the web can place the drawing correctly.
+
+### Changed
+- Ink that cannot be seen on the page's own colours (white on a light page, black on a dark one) is shown in the page's text colour on the web. The saved colour is not changed.
+- Web: the pen starts in the page's text colour, so a stroke is visible on the dark and the light theme.
+
+### Fixed
+- Text sizes written on the phone ("28") did nothing in the web, and sizes set on the web ("28px") did not show on the phone. Both apps now read and write the same form.
+- Server: the "Also notify through Nextcloud" switch from the Android app (1.2.5) now takes effect.
+
 ## [1.2.5] – 2026-11-17
 
 Android app. The Nextcloud app (web) store version stays at 1.2.3; the reminder switch below needs a matching Nextcloud app update, which comes with the next web release.
