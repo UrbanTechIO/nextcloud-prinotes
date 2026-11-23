@@ -1,3 +1,4 @@
+import 'reminder_signature.dart';
 import 'package:drift/drift.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/data/latest.dart' as tz_data;
@@ -99,6 +100,17 @@ class TodoReminders {
       // Exact alarms can be refused at runtime; an approximate reminder beats none.
       await schedule(AndroidScheduleMode.inexactAllowWhileIdle);
     }
+  }
+
+  static String? _lastSignature;
+
+  /// Like [rescheduleAll], but only when something that matters to the alarms has changed since last time.
+  /// Cheap enough to call after every sync, so a reminder set on the web gets its phone alarm at once.
+  static Future<void> rescheduleAllIfChanged(List<Todo> todos) async {
+    final sig = reminderSignature(todos);
+    if (sig == _lastSignature) return;
+    await rescheduleAll(todos);
+    _lastSignature = sig;
   }
 
   /// One bad task must not stop the others from being scheduled.

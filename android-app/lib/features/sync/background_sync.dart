@@ -9,7 +9,7 @@ class BackgroundSync {
   static Future<bool> run({AppDatabase? db, ApiClient? api}) async {
     final database = db ?? AppDatabase();
     try {
-      await SyncService(db: database, api: api ?? ApiClient()).sync();
+      await SyncService(db: database, api: api ?? ApiClient()).sync(waitForVoices: true);
       // Keep To-Do alarms and the home-screen widget in step with what sync just pulled.
       try {
         await TodoEffects.refresh(database);

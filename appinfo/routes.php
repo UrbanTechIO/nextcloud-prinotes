@@ -70,6 +70,11 @@ return [
         ['name' => 'attachment_api#show',    'url' => '/api/attachments/{id}',  'verb' => 'GET'],
         ['name' => 'attachment_api#destroy', 'url' => '/api/attachments/{id}',  'verb' => 'DELETE'],
 
+        // Voice recordings (files in the user's Nextcloud Files, PriNotes/voice)
+        ['name' => 'voice_api#upload',  'url' => '/api/voices',            'verb' => 'POST'],
+        ['name' => 'voice_api#show',    'url' => '/api/voices/{id}',       'verb' => 'GET'],
+        ['name' => 'voice_api#destroy', 'url' => '/api/voices/{id}',       'verb' => 'DELETE'],
+
         // Search
         ['name' => 'note_api#search',   'url' => '/api/search',                 'verb' => 'GET'],
     ],

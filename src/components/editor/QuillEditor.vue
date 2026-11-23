@@ -47,6 +47,9 @@
       </span>
       <span class="ql-formats">
         <button class="ql-image" title="Insert image" @click="onInsertImage" />
+        <button class="ql-prinotes-voice" :class="{ 'pn-active': recState !== 'idle' }" type="button" title="Record a voice note" aria-label="Record a voice note" @click="startRecording">
+          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V22h2v-3.08A7 7 0 0 0 19 12h-2z" /></svg>
+        </button>
         <button class="ql-prinotes-draw" :class="{ 'pn-active': drawMode }" title="Draw on the page" aria-label="Draw on the page" @click="toggleDraw">✎</button>
         <button class="ql-prinotes-divider" title="Insert divider" @click="onInsertDivider">—</button>
       </span>
@@ -62,6 +65,28 @@
       <button type="button" :disabled="!strokeCount" @click="undoStroke">Undo</button>
       <button type="button" :disabled="!strokeCount" @click="clearStrokes">Clear</button>
       <button type="button" class="done" @click="toggleDraw">Done</button>
+    </div>
+
+    <!-- Voice recorder: records, then the recording is added to the note where the cursor was -->
+    <div v-if="recState !== 'idle' || recError" class="voice-bar" role="status">
+      <template v-if="recState === 'recording' || recState === 'paused'">
+        <span class="voice-dot" :class="{ paused: recState === 'paused' }" aria-hidden="true" />
+        <span class="voice-status">{{ recState === 'paused' ? 'Paused' : 'Recording' }}</span>
+        <span class="voice-time">{{ formatLength(recElapsed) }}</span>
+        <div class="voice-live" :class="{ paused: recState === 'paused' }" aria-hidden="true">
+          <span v-for="(l, i) in liveLevels" :key="i" :style="{ height: Math.max(4, l * 36) + 'px' }" />
+        </div>
+        <button type="button" @click="pauseOrResume">{{ recState === 'paused' ? 'Resume' : 'Pause' }}</button>
+        <button type="button" class="done" @click="finishRecording">Add to note</button>
+        <button type="button" @click="cancelRecording">Cancel</button>
+      </template>
+      <template v-else-if="recState === 'saving'">
+        <span class="voice-status">Saving the recording…</span>
+      </template>
+      <template v-else>
+        <span class="voice-error">{{ recError }}</span>
+        <button type="button" @click="recError = ''">Close</button>
+      </template>
     </div>
 
     <!-- Quill target -->
@@ -126,6 +151,9 @@ import 'quill/dist/quill.snow.css'
 import { drawStrokes, referenceWidth, strokesBottom, parseRgb, rgbToHex, toReferencePoint, makeStroke, nextStrokesWidth } from '../../composables/strokes'
 import { buildNoteJson } from '../../composables/noteContent'
 import { FONT_SIZES, toPxSize, fromPxSize } from '../../composables/fontSize'
+import axios from '@nextcloud/axios'
+import { generateUrl } from '@nextcloud/router'
+import { formatLength, newVoiceMeta, pickRecordingType, voiceFilename, uuid, resampleWave, barsToShow, pushLevel, dropIndexFor } from '../../composables/voices'
 
 const props = defineProps({
   modelValue: { type: String, default: '' },
@@ -136,6 +164,7 @@ const uid = Math.random().toString(36).slice(2, 10)
 let quill = null
 let internalUpdate = false     // set while WE mutate the doc, so text-change doesn't re-emit
 let imagesMap = {}             // key -> { data, width, height, rotation }
+let voicesMap = {}             // id -> { label, duration (ms), mime }; the audio is fetched from the server by id
 let imgCounter = 0
 let strokesData = []           // Android freehand strokes: shown and preserved, never edited here
 let strokesWidth = 0           // page width those strokes were drawn on (0 = unknown)
@@ -198,6 +227,21 @@ if (!Quill.__prinotesRegistered) {
   PriNotesImageBlot.tagName = 'div'
   Quill.register(PriNotesImageBlot, true)
 
+  // VoiceBlot — a recording. The delta stores `{voice: '<id>'}` (same as the phone); refreshVoiceDom() paints
+  // the player into the node.
+  class PriNotesVoiceBlot extends BlockEmbed {
+    static create(id) {
+      const node = super.create()
+      node.setAttribute('data-key', id)
+      node.classList.add('prinotes-voice-embed')
+      return node
+    }
+    static value(node) { return node.getAttribute('data-key') }
+  }
+  PriNotesVoiceBlot.blotName = 'voice'
+  PriNotesVoiceBlot.tagName = 'div'
+  Quill.register(PriNotesVoiceBlot, true)
+
   // Divider embed
   class PriNotesDividerBlot extends BlockEmbed {
     static create() {
@@ -214,13 +258,14 @@ if (!Quill.__prinotesRegistered) {
 
 // ── Content parsing (input) ───────────────────────────────────────────────
 function parseIncoming(raw) {
-  const out = { delta: [], images: {}, strokes: [], strokesWidth: 0 }
+  const out = { delta: [], images: {}, voices: {}, strokes: [], strokesWidth: 0 }
   if (!raw) return out
   try {
     const parsed = JSON.parse(raw)
     if (parsed.version === 'quill-1.0') {
       out.delta   = Array.isArray(parsed.delta) ? parsed.delta : []
       out.images  = parsed.images  ?? {}
+      out.voices  = parsed.voices  ?? {}
       out.strokes = parsed.strokes ?? []
       out.strokesWidth = Number(parsed.strokesWidth) || 0
       return out
@@ -296,6 +341,7 @@ function serialize() {
   return buildNoteJson({
     delta: quill.getContents().ops,
     images: imagesMap,
+    voices: voicesMap,
     strokes: strokesData,
     strokesWidth,
   })
@@ -389,6 +435,452 @@ function refreshImageDom() {
 }
 function escapeAttr(s) {
   return String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;')
+}
+
+// ── Voice recordings ──────────────────────────────────────────────────────
+let playing = null            // { id, audio }
+
+// The audio is played straight from the server (same origin, signed in by the session). A blob: URL would be
+// blocked: Nextcloud only allows media from its own address (Content-Security-Policy media-src 'self').
+function voiceEndpoint(id) { return generateUrl(`/apps/prinotes/api/voices/${id}`) }
+
+function el(tag, className, text) {
+  const node = document.createElement(tag)
+  if (className) node.className = className
+  if (text !== undefined) node.textContent = text
+  return node
+}
+
+/** One recording as a player: play / pause, its sound waves (tap or drag to jump), the name, the time, remove. */
+function buildVoiceTile(id) {
+  const tile = el('div', 'pn-voice')
+  tile.dataset.key = id
+
+  const play = el('button', 'pn-voice-play')
+  play.type = 'button'
+  play.setAttribute('aria-label', 'Play')
+  play.innerHTML = '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path class="pn-icon-play" fill="currentColor" d="M8 5v14l11-7z"/><path class="pn-icon-pause" fill="currentColor" d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg>'
+  play.addEventListener('click', () => togglePlay(id))
+
+  const main = el('div', 'pn-voice-main')
+  const wave = el('div', 'pn-voice-wave')
+  wave.setAttribute('role', 'slider')
+  wave.setAttribute('aria-label', 'Position')
+  for (let i = 0; i < barsToShow(voicesMap[id]).length; i++) wave.appendChild(el('span', 'pn-bar'))
+
+  const row = el('div', 'pn-voice-row')
+  const label = el('button', 'pn-voice-label')
+  label.type = 'button'
+  label.title = 'Rename'
+  label.addEventListener('click', () => renameVoice(id))
+  const time = el('span', 'pn-voice-time')
+  row.append(label, time)
+  main.append(wave, row)
+
+  const del = el('button', 'pn-voice-del')
+  del.type = 'button'
+  del.setAttribute('aria-label', 'Remove recording')
+  del.title = 'Remove recording'
+  del.innerHTML = '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M6 19a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>'
+  del.addEventListener('click', () => removeVoice(id))
+
+  tile.append(play, main, del)
+  tile.addEventListener('pointerdown', (e) => onTilePointerDown(e, id, tile))
+  // While a recording is being dragged the page must not scroll under the finger.
+  tile.addEventListener('touchmove', (e) => { if (tileDrag && tileDrag.dragging) e.preventDefault() }, { passive: false })
+  return tile
+}
+
+function paintTile(tile, id) {
+  const meta = voicesMap[id] || { label: 'Voice note', duration: 0 }
+  tile.querySelector('.pn-voice-label').textContent = meta.label || 'Voice note'
+  const mine = playing && playing.id === id
+  const current = mine ? Math.floor((playing.audio.currentTime || 0) * 1000) : 0
+  tile.querySelector('.pn-voice-time').textContent = mine
+    ? `${formatLength(current)} / ${formatLength(meta.duration)}`
+    : formatLength(meta.duration)
+  tile.classList.toggle('pn-voice--playing', !!(mine && !playing.audio.paused))
+  tile.querySelector('.pn-voice-play').setAttribute('aria-label', mine && !playing.audio.paused ? 'Pause' : 'Play')
+  // The bars: their heights from the saved sound shape, the played part coloured.
+  const bars = barsToShow(meta)
+  const total = Number.isFinite(playing?.audio.duration) && playing.audio.duration > 0 ? playing.audio.duration : (meta.duration || 0) / 1000
+  const progress = mine && total ? Math.min(1, (playing.audio.currentTime || 0) / total) : 0
+  const nodes = tile.querySelectorAll('.pn-bar')
+  nodes.forEach((n, i) => {
+    const v = bars[Math.min(i, bars.length - 1)]
+    const h = `${Math.max(4, Math.round(v * 32))}px`
+    if (n.style.height !== h) n.style.height = h
+    n.classList.toggle('played', (i + 0.5) / nodes.length <= progress)
+  })
+}
+
+function refreshVoiceDom() {
+  if (!quill) return
+  quill.root.querySelectorAll('div.prinotes-voice-embed').forEach((node) => {
+    const id = node.getAttribute('data-key')
+    let tile = node.firstElementChild
+    if (!tile || tile.dataset.key !== id) {
+      node.innerHTML = ''
+      tile = buildVoiceTile(id)
+      node.appendChild(tile)
+    }
+    paintTile(tile, id)
+  })
+}
+
+function tileFor(id) {
+  return quill?.root.querySelector(`div.prinotes-voice-embed[data-key="${CSS.escape(id)}"] .pn-voice`) || null
+}
+
+function stopPlayback() {
+  if (!playing) return
+  const { id, audio } = playing
+  audio.pause()
+  playing = null
+  const tile = tileFor(id)
+  if (tile) paintTile(tile, id)
+}
+
+/** Jump to a place in a recording (0 to 1). If it is not playing yet, start it from there. */
+function seekVoice(id, fraction) {
+  if (playing && playing.id === id) {
+    const total = Number.isFinite(playing.audio.duration) ? playing.audio.duration : (voicesMap[id]?.duration || 0) / 1000
+    if (total) playing.audio.currentTime = fraction * total
+    const t = tileFor(id)
+    if (t) paintTile(t, id)
+  } else {
+    togglePlay(id, fraction)
+  }
+}
+
+/** Play or pause a recording. Playing one stops any other that was playing. [from] starts it part-way in. */
+async function togglePlay(id, from) {
+  if (playing && playing.id === id) {
+    if (playing.audio.paused) await playing.audio.play()
+    else playing.audio.pause()
+    const t = tileFor(id)
+    if (t) paintTile(t, id)
+    return
+  }
+  stopPlayback()
+  const tile = tileFor(id)
+  const audio = new Audio(voiceEndpoint(id))
+  playing = { id, audio }
+  audio.addEventListener('error', () => {
+    playing = null
+    const t = tileFor(id)
+    if (t) t.querySelector('.pn-voice-time').textContent = 'Not available'
+  })
+  if (typeof from === 'number') {
+    audio.addEventListener('loadedmetadata', () => {
+      const total = Number.isFinite(audio.duration) ? audio.duration : (voicesMap[id]?.duration || 0) / 1000
+      if (total) audio.currentTime = from * total
+    }, { once: true })
+  }
+  const sync = () => {
+    const t = tileFor(id)
+    if (t) paintTile(t, id)
+  }
+  audio.addEventListener('timeupdate', sync)
+  audio.addEventListener('pause', sync)
+  audio.addEventListener('play', sync)
+  audio.addEventListener('ended', () => {
+    audio.currentTime = 0
+    playing = null
+    const t = tileFor(id)
+    if (t) paintTile(t, id)
+  })
+  try {
+    await audio.play()
+  } catch {
+    playing = null
+    if (tile) tile.querySelector('.pn-voice-time').textContent = 'Could not play'
+  }
+}
+
+// ── Touching a recording: tap or drag the waves to jump; hold anywhere else on it, then drag to move it ──
+let tileDrag = null   // { id, tile, node, x, y, mode: 'wait' | 'seek' | 'drag', dragging, timer, target, after }
+const HOLD_MS = 350
+const MOVE_SLOP = 8
+
+function waveFraction(tile, e) {
+  const r = tile.querySelector('.pn-voice-wave').getBoundingClientRect()
+  return Math.max(0, Math.min(1, (e.clientX - r.left) / Math.max(1, r.width)))
+}
+
+function onTilePointerDown(e, id, tile) {
+  if (e.button > 0 || e.target.closest('button')) return
+  const onWave = !!e.target.closest('.pn-voice-wave')
+  tileDrag = { id, tile, node: tile.parentElement, x: e.clientX, y: e.clientY, onWave, mode: 'wait', dragging: false, timer: 0, target: null, after: false }
+  tileDrag.timer = setTimeout(() => startTileDrag(e.pointerId), HOLD_MS)
+  window.addEventListener('pointermove', onTilePointerMove)
+  window.addEventListener('pointerup', onTilePointerUp)
+  window.addEventListener('pointercancel', onTilePointerCancel)
+}
+
+function startTileDrag(pointerId) {
+  if (!tileDrag || tileDrag.mode !== 'wait') return
+  tileDrag.mode = 'drag'
+  tileDrag.dragging = true
+  tileDrag.tile.classList.add('pn-voice--dragging')
+  try { tileDrag.tile.setPointerCapture(pointerId) } catch { /* pointer already gone */ }
+  if (navigator.vibrate) navigator.vibrate(15)
+}
+
+function dragTargets() {
+  return [...quill.root.children].filter((c) => c !== tileDrag.node)
+}
+
+function onTilePointerMove(e) {
+  if (!tileDrag) return
+  const dx = e.clientX - tileDrag.x
+  const dy = e.clientY - tileDrag.y
+  if (tileDrag.mode === 'wait') {
+    if (Math.abs(dx) > MOVE_SLOP || Math.abs(dy) > MOVE_SLOP) {
+      clearTimeout(tileDrag.timer)
+      if (tileDrag.onWave && Math.abs(dx) >= Math.abs(dy)) tileDrag.mode = 'seek'
+      else return endTileDrag()   // a scroll or a wander: not ours
+    } else {
+      return
+    }
+  }
+  if (tileDrag.mode === 'seek') {
+    seekVoice(tileDrag.id, waveFraction(tileDrag.tile, e))
+    return
+  }
+  // dragging: the tile follows the finger, and the place it would land is marked
+  tileDrag.tile.style.transform = `translateY(${dy}px)`
+  const blocks = dragTargets()
+  const rects = blocks.map((c) => { const r = c.getBoundingClientRect(); return { top: r.top, bottom: r.bottom } })
+  blocks.forEach((c) => c.classList.remove('pn-drop-before', 'pn-drop-after'))
+  const drop = dropIndexFor(rects, e.clientY)
+  tileDrag.target = drop ? blocks[drop.block] : null
+  tileDrag.after = drop ? drop.after : false
+  if (tileDrag.target) tileDrag.target.classList.add(tileDrag.after ? 'pn-drop-after' : 'pn-drop-before')
+}
+
+function onTilePointerUp(e) {
+  if (!tileDrag) return
+  const d = tileDrag
+  if (d.mode === 'wait') {
+    clearTimeout(d.timer)
+    // a plain tap: on the waves it jumps there
+    if (d.onWave) seekVoice(d.id, waveFraction(d.tile, e))
+  } else if (d.mode === 'drag' && d.target) {
+    moveVoiceNextTo(d.id, d.node, d.target, d.after)
+  }
+  endTileDrag()
+}
+
+function onTilePointerCancel() { endTileDrag() }
+
+function endTileDrag() {
+  if (!tileDrag) return
+  clearTimeout(tileDrag.timer)
+  tileDrag.tile.classList.remove('pn-voice--dragging')
+  tileDrag.tile.style.transform = ''
+  quill?.root.querySelectorAll('.pn-drop-before, .pn-drop-after').forEach((c) => c.classList.remove('pn-drop-before', 'pn-drop-after'))
+  tileDrag = null
+  window.removeEventListener('pointermove', onTilePointerMove)
+  window.removeEventListener('pointerup', onTilePointerUp)
+  window.removeEventListener('pointercancel', onTilePointerCancel)
+}
+
+/** Moves a recording to just before or after another block of the note, as one step that Undo takes back. */
+function moveVoiceNextTo(id, node, targetNode, after) {
+  const Delta = Quill.import('delta')
+  const mine = Quill.find(node)
+  const other = Quill.find(targetNode)
+  if (!mine || !other) return
+  const from = quill.getIndex(mine)
+  const at = after ? quill.getIndex(other) + other.length() : quill.getIndex(other)
+  if (at === from || at === from + 1) return   // already there
+  const change = at < from
+    ? new Delta().retain(at).insert({ voice: id }).retain(from - at).delete(1)
+    : new Delta().retain(from).delete(1).retain(at - from - 1).insert({ voice: id })
+  quill.updateContents(change, Quill.sources.USER)
+}
+
+function renameVoice(id) {
+  const meta = voicesMap[id]
+  if (!meta) return
+  const name = window.prompt('Name this recording', meta.label || '')
+  if (name === null) return
+  const clean = name.trim().slice(0, 60)
+  if (!clean) return
+  meta.label = clean
+  refreshVoiceDom()
+  emit('update:modelValue', serialize())
+}
+
+/** Takes a recording out of the text. Its details stay in memory, so Undo can bring it back. */
+function removeVoice(id) {
+  if (playing && playing.id === id) stopPlayback()
+  let offset = 0
+  for (const op of quill.getContents().ops) {
+    if (op.insert && typeof op.insert === 'object') {
+      if (op.insert.voice === id) {
+        quill.deleteText(offset, 1, Quill.sources.USER)
+        return
+      }
+      offset += 1
+    } else {
+      offset += String(op.insert).length
+    }
+  }
+}
+
+// Recording: the browser's microphone, saved to the server, then added to the note at the cursor.
+const recState = ref('idle')   // idle | recording | paused | saving
+const recElapsed = ref(0)
+const recError = ref('')
+const liveLevels = ref([])      // the bars shown while recording, newest last
+let recLevels = []              // every reading, for the saved shape
+let audioCtx = null
+let analyser = null
+let levelTimer = null
+let recorder = null
+let recStream = null
+let recChunks = []
+let recTimer = null
+let recSince = 0
+let recBefore = 0
+let recIndex = 0
+let recDiscard = false
+
+function elapsedMs() { return recBefore + (recSince ? Date.now() - recSince : 0) }
+
+function releaseRecorder() {
+  clearInterval(recTimer)
+  recTimer = null
+  clearInterval(levelTimer)
+  levelTimer = null
+  analyser = null
+  if (audioCtx) { audioCtx.close().catch(() => {}); audioCtx = null }
+  if (recorder && recorder.state !== 'inactive') {
+    recDiscard = true
+    try { recorder.stop() } catch { /* already stopped */ }
+  }
+  recStream?.getTracks().forEach((t) => t.stop())
+  recStream = null
+  recorder = null
+}
+
+async function startRecording() {
+  if (recState.value !== 'idle') return
+  recError.value = ''
+  if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
+    recError.value = 'This browser cannot record audio.'
+    return
+  }
+  try {
+    recStream = await navigator.mediaDevices.getUserMedia({ audio: true })
+  } catch {
+    recError.value = 'Allow the microphone for this site to record.'
+    return
+  }
+  const type = pickRecordingType((t) => MediaRecorder.isTypeSupported(t))
+  try {
+    recorder = new MediaRecorder(recStream, type ? { mimeType: type, audioBitsPerSecond: 64000 } : { audioBitsPerSecond: 64000 })
+  } catch {
+    releaseRecorder()
+    recError.value = 'The recorder could not start.'
+    return
+  }
+  recIndex = quill?.getSelection()?.index ?? Math.max(0, (quill?.getLength() ?? 1) - 1)
+  // How loud it is, about eight times a second: the bars on screen and the shape saved with the recording.
+  recLevels = []
+  liveLevels.value = []
+  try {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)()
+    const source = audioCtx.createMediaStreamSource(recStream)
+    analyser = audioCtx.createAnalyser()
+    analyser.fftSize = 1024
+    source.connect(analyser)
+    const samples = new Float32Array(analyser.fftSize)
+    levelTimer = setInterval(() => {
+      if (!analyser || recState.value !== 'recording') return
+      analyser.getFloatTimeDomainData(samples)
+      let sum = 0
+      for (let i = 0; i < samples.length; i++) sum += samples[i] * samples[i]
+      const db = 20 * Math.log10(Math.max(Math.sqrt(sum / samples.length), 1e-5))
+      const level = Math.max(0, Math.min(1, (db + 50) / 50))   // the same scale the phone uses
+      recLevels.push(level)
+      liveLevels.value = pushLevel(liveLevels.value, level)
+    }, 120)
+  } catch {
+    // no level meter in this browser: the recording still works, without bars
+  }
+  recChunks = []
+  recDiscard = false
+  recBefore = 0
+  recSince = Date.now()
+  recElapsed.value = 0
+  recorder.ondataavailable = (e) => { if (e.data && e.data.size) recChunks.push(e.data) }
+  recorder.onstop = onRecorderStopped
+  recorder.start(1000)
+  recTimer = setInterval(() => {
+    recElapsed.value = elapsedMs()
+    if (recElapsed.value >= 30 * 60 * 1000) finishRecording()
+  }, 200)
+  recState.value = 'recording'
+}
+
+function pauseOrResume() {
+  if (!recorder) return
+  if (recState.value === 'recording') {
+    recorder.pause()
+    recBefore = elapsedMs()
+    recSince = 0
+    recState.value = 'paused'
+  } else if (recState.value === 'paused') {
+    recorder.resume()
+    recSince = Date.now()
+    recState.value = 'recording'
+  }
+}
+
+function finishRecording() {
+  if (!recorder || recorder.state === 'inactive') return
+  recBefore = elapsedMs()
+  recSince = 0
+  clearInterval(recTimer)
+  recState.value = 'saving'
+  recorder.stop()
+}
+
+function cancelRecording() {
+  recDiscard = true
+  releaseRecorder()
+  recState.value = 'idle'
+}
+
+async function onRecorderStopped() {
+  const mime = (recorder?.mimeType || '').split(';')[0] || 'audio/webm'
+  const durationMs = recBefore
+  const blob = new Blob(recChunks, { type: mime })
+  const discard = recDiscard
+  releaseRecorder()
+  if (discard) return
+  if (!blob.size || durationMs < 300) {
+    recState.value = 'idle'
+    return
+  }
+  const id = uuid()
+  try {
+    const form = new FormData()
+    form.append('id', id)
+    form.append('file', new File([blob], voiceFilename(id, mime), { type: mime }))
+    await axios.post(generateUrl('/apps/prinotes/api/voices'), form)
+  } catch {
+    recState.value = 'idle'
+    recError.value = 'Could not save the recording. Check the connection and try again.'
+    return
+  }
+  voicesMap[id] = newVoiceMeta({ durationMs, mime, wave: resampleWave(recLevels) })
+  quill.insertEmbed(recIndex, 'voice', id, Quill.sources.USER)
+  quill.setSelection(recIndex + 1, 0, Quill.sources.SILENT)
+  recState.value = 'idle'
 }
 
 // ── Insert helpers ────────────────────────────────────────────────────────
@@ -520,8 +1012,9 @@ function redo() { quill?.history.redo(); syncHistory() }
 
 // ── Load content into Quill ───────────────────────────────────────────────
 function loadIntoQuill(raw) {
-  const { delta, images, strokes, strokesWidth: savedWidth } = parseIncoming(raw)
+  const { delta, images, voices, strokes, strokesWidth: savedWidth } = parseIncoming(raw)
   imagesMap = { ...images }
+  voicesMap = { ...(voices ?? {}) }
   strokesData = Array.isArray(strokes) ? strokes : []
   strokesWidth = savedWidth || 0
   strokeCount.value = strokesData.length
@@ -534,6 +1027,7 @@ function loadIntoQuill(raw) {
   quill.setContents({ ops: delta.length ? delta : [{ insert: '\n' }] }, Quill.sources.SILENT)
   nextTick(() => {
     refreshImageDom()
+    refreshVoiceDom()
     refreshStrokes()
     internalUpdate = false
   })
@@ -571,11 +1065,15 @@ onMounted(() => {
     // Skip our own programmatic writes (setContents on load)
     if (internalUpdate) return
     refreshImageDom()
+    refreshVoiceDom()
     emit('update:modelValue', serialize())
   })
 })
 
 onBeforeUnmount(() => {
+  endTileDrag()
+  releaseRecorder()
+  stopPlayback()
   strokeObserver?.disconnect()
   scrollHost()?.removeEventListener('scroll', redrawStrokes)
   quill = null
@@ -751,6 +1249,45 @@ watch(() => props.modelValue, (val) => {
   }
 }
 
+:deep(.prinotes-voice-embed) { margin: 6px 0; }
+:deep(.pn-voice) {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 6px 6px 8px;
+  border-radius: 14px;
+  background: var(--color-background-hover);
+  max-width: 520px;
+}
+:deep(.pn-voice--playing) { background: var(--color-primary-element-light, rgba(0, 130, 201, 0.18)); }
+:deep(.pn-voice button) { background: none; border: 0; padding: 0; color: var(--color-main-text); cursor: pointer; }
+:deep(.pn-voice-play) {
+  width: 40px; height: 40px; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;
+  background: var(--color-main-background) !important;
+  border: 1px solid var(--color-border-dark) !important;
+}
+:deep(.pn-voice-play .pn-icon-pause) { display: none; }
+:deep(.pn-voice--playing .pn-voice-play .pn-icon-play) { display: none; }
+:deep(.pn-voice--playing .pn-voice-play .pn-icon-pause) { display: inline; }
+:deep(.pn-voice--loading) { opacity: 0.6; }
+:deep(.pn-voice-main) { flex: 1; min-width: 0; }
+:deep(.pn-voice-wave) {
+  display: flex; align-items: center; gap: 2px; height: 34px; cursor: pointer; touch-action: pan-y; user-select: none;
+}
+:deep(.pn-bar) { flex: 1; min-width: 2px; max-width: 5px; border-radius: 2px; background: var(--color-border-dark); height: 4px; }
+:deep(.pn-bar.played) { background: var(--color-primary-element); }
+:deep(.pn-voice--dragging) {
+  position: relative; z-index: 5; opacity: 0.92; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35); cursor: grabbing;
+}
+:deep(.pn-drop-before) { box-shadow: 0 -3px 0 0 var(--color-primary-element); }
+:deep(.pn-drop-after) { box-shadow: 0 3px 0 0 var(--color-primary-element); }
+:deep(.pn-voice-row) { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; color: var(--color-text-maxcontrast); }
+:deep(.pn-voice-label) { color: var(--color-text-maxcontrast) !important; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+:deep(.pn-voice-time) { font-variant-numeric: tabular-nums; white-space: nowrap; }
+:deep(.pn-voice-del) { opacity: 0.6; padding: 6px !important; }
+:deep(.pn-voice-del:hover) { opacity: 1; color: var(--color-error) !important; }
+
 :deep(.prinotes-image-embed) {
   display: block;
   margin: 12px 0;
@@ -809,6 +1346,31 @@ watch(() => props.modelValue, (val) => {
   input[type='range'] { width: 110px; }
   .draw-size { min-width: 1.6em; text-align: right; font-size: 0.85rem; }
 }
+
+.voice-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--color-border);
+  border-top: none;
+  background: var(--color-background-hover);
+  flex-shrink: 0;
+
+  button { padding: 2px 10px; min-height: 30px; }
+  button.done { font-weight: 600; margin-left: auto; }
+  .voice-time { font-variant-numeric: tabular-nums; min-width: 3em; }
+  .voice-live {
+    display: flex; align-items: center; justify-content: flex-end; gap: 3px; height: 40px; flex: 1 1 140px; min-width: 120px; overflow: hidden;
+    span { width: 3px; flex-shrink: 0; border-radius: 2px; background: var(--color-main-text); }
+    &.paused span { opacity: 0.35; }
+  }
+  .voice-error { color: var(--color-error); }
+  .voice-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--color-error); animation: pn-blink 1s infinite; }
+  .voice-dot.paused { animation: none; opacity: 0.5; }
+}
+@keyframes pn-blink { 50% { opacity: 0.25; } }
 
 .stroke-layer.drawing {
   pointer-events: auto;

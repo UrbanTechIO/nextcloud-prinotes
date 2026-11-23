@@ -16,7 +16,7 @@ class SettingsService {
         'editor_font_size'        => '16',
         'auto_save_interval'      => '5',   // seconds
         'trash_auto_delete_days'  => '30',
-        'todo_nextcloud_notifications' => 'true', // 'false': the Android app shows To-Do reminders itself
+        'todo_nextcloud_reminders' => 'false', // 'true': also send To-Do reminders as Nextcloud notifications
     ];
 
     public function __construct(private SettingMapper $mapper) {}

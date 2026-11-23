@@ -128,8 +128,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             title: const Text('Also notify through Nextcloud'),
             subtitle: Text(_ncReminders == null
                 ? 'Needs a connection to the server'
-                : 'To-Do reminders always come from PriNotes. Turn this off to stop the extra notification in the Nextcloud app.'),
-            value: _ncReminders ?? true,
+                : 'To-Do reminders always come from PriNotes. Turn this on to also get one in the Nextcloud app.'),
+            value: _ncReminders ?? false,
             onChanged: _ncReminders == null
                 ? null
                 : (v) async {

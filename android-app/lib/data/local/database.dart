@@ -202,6 +202,16 @@ class AppDatabase extends _$AppDatabase {
 
   // ── Note queries ──────────────────────────────────────────────────────────
 
+  /// How many notes are in the trash. Counts in the database; it never loads the notes themselves.
+  Stream<int> watchTrashCount({bool showHidden = false}) {
+    final count = notes.id.count();
+    final query = selectOnly(notes)
+      ..addColumns([count])
+      ..where(notes.isTrashed.equals(true));
+    if (!showHidden) query.where(notes.isHidden.equals(false));
+    return query.map((row) => row.read(count) ?? 0).watchSingle();
+  }
+
   Stream<List<Note>> watchNotes({
     int? notebookId,
     bool trashed = false,

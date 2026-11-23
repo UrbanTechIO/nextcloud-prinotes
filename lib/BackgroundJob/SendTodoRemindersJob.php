@@ -28,8 +28,8 @@ class SendTodoRemindersJob extends TimedJob {
     protected function run(mixed $argument): void {
         foreach ($this->mapper->findDueReminders(time()) as $todo) {
             try {
-                // Users who get reminders from the Android app switch the Nextcloud notification off.
-                $setting = $this->settings->get($todo->getUserId(), 'todo_nextcloud_notifications');
+                // The reminder comes from the PriNotes app; Nextcloud adds its own only if the user asked for it.
+                $setting = $this->settings->get($todo->getUserId(), 'todo_nextcloud_reminders');
                 if (TodoReminderPolicy::sendNextcloudNotification($setting)) {
                     $this->notify($todo);
                 }

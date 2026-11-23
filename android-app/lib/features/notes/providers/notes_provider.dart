@@ -74,7 +74,7 @@ final notesStreamProvider = StreamProvider<List<Note>>((ref) {
 final trashCountProvider = StreamProvider<int>((ref) {
   final db = ref.watch(databaseProvider);
   final vaultUnlocked = ref.watch(vaultUnlockedProvider);
-  return db.watchNotes(trashed: true, showHidden: vaultUnlocked).map((l) => l.length);
+  return db.watchTrashCount(showHidden: vaultUnlocked);
 });
 
 // ── Notebooks stream ──────────────────────────────────────────────────────────

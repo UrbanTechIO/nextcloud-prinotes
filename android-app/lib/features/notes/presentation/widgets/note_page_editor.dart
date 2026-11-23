@@ -2,6 +2,11 @@ import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import '../../data/image_size.dart';
+import '../../../voice/voice_playback.dart';
+import '../../../voice/voice_store.dart';
+import '../../../voice/voice_tile.dart';
 import '../../data/font_sizes.dart';
 import 'package:flutter_colorpicker/flutter_colorpicker.dart';
 import 'package:flutter_quill/flutter_quill.dart';
@@ -22,10 +27,20 @@ class NotePageEditor extends StatefulWidget {
   final Map<String, dynamic> content;
   final ValueChanged<Map<String, dynamic>> onChanged;
 
+  /// Where the recordings of this note are kept on the phone (null: the app's own store). Tests pass their own.
+  final VoiceStore? voiceStore;
+  final VoicePlayback? voicePlayback;
+
+  /// Fetches a recording this phone does not have yet. Returns true when it arrived.
+  final Future<bool> Function(String id, String mime)? onVoiceDownload;
+
   const NotePageEditor({
     super.key,
     required this.content,
     required this.onChanged,
+    this.voiceStore,
+    this.voicePlayback,
+    this.onVoiceDownload,
   });
 
   @override
@@ -39,6 +54,9 @@ class NotePageEditorState extends State<NotePageEditor> {
   final _focusNode = FocusNode();
   final _scrollCtrl = ScrollController();
   final Map<String, Map<String, dynamic>> _images = {};
+  // Voice recordings: id -> { label, duration (ms), mime }. The audio is a separate file (see VoiceStore).
+  final Map<String, Map<String, dynamic>> _voices = {};
+  VoiceStore? _voiceStore;
 
   // Drawing state
   late List<_Stroke> _strokes;
@@ -64,6 +82,7 @@ class NotePageEditorState extends State<NotePageEditor> {
   bool _suppressNextDeselect = false;
   double _imgReorderAccum = 0.0;
   int _editorRebuildKey = 0; // Incremented to force QuillEditor rebuild after delta reorder
+  GlobalKey<QuillEditorState> _quillKey = GlobalKey<QuillEditorState>(); // new one with every rebuild
 
   // Content-change deduplication — QuillController notifies on BOTH document
   // changes AND selection/cursor changes.  We must not call widget.onChanged
@@ -86,6 +105,17 @@ class NotePageEditorState extends State<NotePageEditor> {
     _parseContent(widget.content);
     _qCtrl.addListener(_onEditorChange);
     _focusNode.addListener(_onEditorFocusChange);
+    _voiceStore = widget.voiceStore;
+    if (_voiceStore == null) _loadVoiceStore(); // ready before the first recording is added or played
+  }
+
+  Future<void> _loadVoiceStore() async {
+    try {
+      final store = await VoiceStore.shared();
+      if (mounted) setState(() => _voiceStore = store);
+    } catch (_) {
+      // no storage (tests): the recordings then show as "not on this phone"
+    }
   }
 
   @override
@@ -231,7 +261,10 @@ class NotePageEditorState extends State<NotePageEditor> {
     // Seed cache so the rebuild itself doesn't re-trigger onChanged unnecessarily
     _lastDeltaJson = jsonEncode(_qCtrl.document.toDelta().toJson());
 
-    setState(() => _editorRebuildKey++);
+    setState(() {
+      _editorRebuildKey++;
+      _quillKey = GlobalKey<QuillEditorState>();
+    });
 
     // Dispose old controller after rebuild so the old QuillEditor can finish
     WidgetsBinding.instance.addPostFrameCallback((_) => oldCtrl.dispose());
@@ -249,6 +282,10 @@ class NotePageEditorState extends State<NotePageEditor> {
       rawImages.forEach((k, v) {
         _images[k as String] = Map<String, dynamic>.from(v as Map);
       });
+      final rawVoices = content['voices'] as Map? ?? {};
+      rawVoices.forEach((k, v) {
+        if (v is Map) _voices[k as String] = Map<String, dynamic>.from(v);
+      });
       final rawDelta = content['delta'] as List?;
       // Sanitize ops: replace unregistered embed types (e.g. divider) with a
       // plain text equivalent so Document.fromJson doesn't throw.
@@ -260,7 +297,7 @@ class NotePageEditorState extends State<NotePageEditor> {
             return {'insert': '────────────────────\n'};
           }
           // Any other unknown embed — skip by rendering as empty paragraph
-          if (!insert.containsKey('image')) {
+          if (!insert.containsKey('image') && !insert.containsKey('voice')) {
             return {'insert': '\n'};
           }
         }
@@ -412,6 +449,7 @@ class NotePageEditorState extends State<NotePageEditor> {
         'version': 'quill-1.0',
         'delta': _qCtrl.document.toDelta().toJson(),
         'images': _images,
+        ..._voicesField(),
         'strokes': _strokes
             .map((s) => {
                   'pts': s.points.map((p) => [p.dx, p.dy]).toList(),
@@ -423,14 +461,105 @@ class NotePageEditorState extends State<NotePageEditor> {
         if (_strokes.isNotEmpty && _pageWidth > 0) 'strokesWidth': _pageWidth,
       };
 
+  /// The ids of the recordings that are in the text right now.
+  Set<String> _voiceIdsInText() => {
+        for (final op in _qCtrl.document.toDelta().toList())
+          if (op.data is Map && (op.data as Map).containsKey('voice')) (op.data as Map)['voice'] as String,
+      };
+
+  /// `voices` in the saved note: only the recordings still in the text (a removed one can come back with Undo,
+  /// so its details stay in memory, just not in the saved note).
+  Map<String, dynamic> _voicesField() {
+    final inText = _voiceIdsInText();
+    final kept = {for (final e in _voices.entries) if (inText.contains(e.key)) e.key: e.value};
+    return kept.isEmpty ? const {} : {'voices': kept};
+  }
+
   // ── Public API ─────────────────────────────────────────────────────────────
 
-  void addImage(String dataUrl) {
+  /// Adds a voice recording at the cursor. The audio file is already in the [VoiceStore].
+  void addVoice(String id, Map<String, dynamic> meta) {
+    _voices[id] = Map<String, dynamic>.from(meta);
+    final at = _qCtrl.selection.baseOffset;
+    final index = (at < 0 || at > _qCtrl.document.length - 1) ? _qCtrl.document.length - 1 : at;
+    _qCtrl.document.insert(index, BlockEmbed('voice', id));
+    _qCtrl.updateSelection(TextSelection.collapsed(offset: index + 1), ChangeSource.local);
+    widget.onChanged(_serialize());
+    if (mounted) setState(() {});
+    // The recorder sheet closing hands focus back to the text, which opens the keyboard: keep it closed.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _hideKeyboard();
+    });
+  }
+
+  /// A recording was held and dropped at [globalPoint] on the screen: moves it to the line under the finger.
+  void moveVoiceTo(String id, Offset globalPoint) {
+    final render = _quillKey.currentState?.editableTextKey.currentState?.renderEditor;
+    if (render == null) return;
+    moveVoiceToOffset(id, render.getPositionForOffset(globalPoint).offset);
+  }
+
+  /// Moves a recording next to the block of the note that contains [offset]: below it when moving down, above
+  /// it when moving up. The recording moves as a whole block (its own line).
+  void moveVoiceToOffset(String id, int offset) {
+    final ops = [for (final o in _qCtrl.document.toDelta().toJson()) Map<String, dynamic>.from(o as Map)];
+    final blocks = _deltaToBlocks(ops);
+    int? from;
+    int? to;
+    var at = 0;
+    for (var i = 0; i < blocks.length; i++) {
+      var len = 0;
+      for (final op in blocks[i]) {
+        final ins = op['insert'];
+        if (ins is Map && ins['voice'] == id) from = i;
+        len += ins is String ? ins.length : 1;
+      }
+      if (to == null && offset < at + len) to = i;
+      at += len;
+    }
+    if (from == null) return;
+    to ??= blocks.length - 1;
+    if (to == from) return;
+    if (VoicePlayback.shared.currentId == id) VoicePlayback.shared.stop();
+    final moved = List<List<Map<String, dynamic>>>.from(blocks);
+    final block = moved.removeAt(from);
+    moved.insert(to, block);
+    _rebuildDocument(moved.expand((b) => b).toList());
+  }
+
+  /// Takes a recording out of the text. Its details are kept, so Undo can bring it back.
+  void removeVoice(String id) {
+    var offset = 0;
+    for (final op in _qCtrl.document.toDelta().toList()) {
+      final data = op.data;
+      if (data is Map && data['voice'] == id) {
+        _qCtrl.replaceText(offset, 1, '', null);
+        break;
+      }
+      offset += data is String ? data.length : 1;
+    }
+    widget.onChanged(_serialize());
+    if (mounted) setState(() {});
+  }
+
+  void renameVoice(String id, String label) {
+    final v = _voices[id];
+    if (v == null) return;
+    v['label'] = label;
+    widget.onChanged(_serialize());
+    if (mounted) setState(() {});
+  }
+
+  /// Adds a picture at the cursor. [aspect] (width / height) keeps the picture's own shape; without it the
+  /// picture gets the old wide 4:3 frame.
+  void addImage(String dataUrl, {double? aspect}) {
     final screenW = MediaQuery.sizeOf(context).width;
     final initW = ((screenW - 40) / 2).clamp(120.0, 400.0);
-    final initH = initW * 3 / 4;
+    final size = aspect != null && aspect > 0
+        ? pictureSize(maxWidth: initW, aspect: aspect)
+        : Size(initW, initW * 3 / 4);
     final id = _uid();
-    _images[id] = {'data': dataUrl, 'width': initW, 'height': initH, 'rotation': 0.0};
+    _images[id] = {'data': dataUrl, 'width': size.width, 'height': size.height, 'rotation': 0.0};
 
     final index = _qCtrl.selection.baseOffset;
     final safeIndex = index < 0 ? _qCtrl.document.length : index;
@@ -439,6 +568,28 @@ class NotePageEditorState extends State<NotePageEditor> {
       TextSelection.collapsed(offset: safeIndex + 1),
       ChangeSource.local,
     );
+    widget.onChanged(_serialize());
+  }
+
+  /// Puts the cursor at the end of the note, without opening the keyboard.
+  void moveCursorToEnd() {
+    _qCtrl.updateSelection(TextSelection.collapsed(offset: _qCtrl.document.length - 1), ChangeSource.local);
+  }
+
+  /// Adds scanned text at the cursor as its own line. The cursor moves to the end of it, so the next line follows.
+  void insertText(String text) {
+    final clean = text.trim();
+    if (clean.isEmpty) return;
+    final end = _qCtrl.document.length - 1;
+    final at = _qCtrl.selection.baseOffset;
+    final index = (at < 0 || at > end) ? end : at;
+    // The text always gets its own line: start a new one when the cursor is after other text, and end it with a
+    // line break unless the cursor is at the end of a line (the line's own break then closes it).
+    final plain = _qCtrl.document.toPlainText();
+    final leading = index > 0 && plain[index - 1] != '\n';
+    final atLineEnd = index >= plain.length || plain[index] == '\n';
+    final line = '${leading ? '\n' : ''}$clean${leading && atLineEnd ? '' : '\n'}';
+    _qCtrl.replaceText(index, 0, line, TextSelection.collapsed(offset: index + line.length));
     widget.onChanged(_serialize());
   }
 
@@ -964,6 +1115,12 @@ class NotePageEditorState extends State<NotePageEditor> {
     }
   }
 
+  /// Closes the keyboard and keeps the editor from taking focus until a touch lands outside the pictures.
+  void _hideKeyboard() {
+    _focusNode.unfocus();
+    SystemChannels.textInput.invokeMethod('TextInput.hide');
+  }
+
   // ── Editor area ────────────────────────────────────────────────────────────
 
   Widget _buildEditorArea() {
@@ -985,6 +1142,8 @@ class NotePageEditorState extends State<NotePageEditor> {
               _suppressNextDeselect = false;
               return;
             }
+            // A touch outside the pictures: the editor may take the keyboard again.
+            _focusNode.canRequestFocus = true;
             if (_selectedImageId != null && mounted) {
               setState(() => _selectedImageId = null);
             }
@@ -995,7 +1154,7 @@ class NotePageEditorState extends State<NotePageEditor> {
             minScale: 0.5,
             maxScale: 4.0,
             child: QuillEditor(
-              key: ValueKey(_editorRebuildKey),
+              key: _quillKey,
               controller: _qCtrl,
               focusNode: _focusNode,
               scrollController: _scrollCtrl,
@@ -1004,21 +1163,35 @@ class NotePageEditorState extends State<NotePageEditor> {
                     ? const NeverScrollableScrollPhysics()
                     : null,
                 embedBuilders: [
+                  _VoiceEmbedBuilder(
+                    voices: _voices,
+                    store: _voiceStore,
+                    playback: widget.voicePlayback ?? VoicePlayback.shared,
+                    onRename: renameVoice,
+                    onDelete: removeVoice,
+                    onDrop: moveVoiceTo,
+                    onDownload: widget.onVoiceDownload,
+                    onPointerDown: () {
+                      _suppressNextDeselect = true;
+                      _focusNode.canRequestFocus = false;
+                      _hideKeyboard();
+                    },
+                  ),
                   _ImageEmbedBuilder(
                     images: _images,
                     selectedId: _selectedImageId,
                     onSelect: (id) {
-                      final selecting = _selectedImageId != id;
-                      setState(() =>
-                          _selectedImageId = selecting ? id : null);
-                      // Dismiss the keyboard when an image is selected
-                      if (selecting) FocusScope.of(context).unfocus();
+                      // A tap selects; tapping the same picture again keeps it selected (a touch outside
+                      // the pictures deselects it).
+                      if (_selectedImageId != id) setState(() => _selectedImageId = id);
+                      _hideKeyboard();
                     },
                     onDelete: (id) {
                       setState(() {
                         _images.remove(id);
                         _selectedImageId = null;
                       });
+                      _focusNode.canRequestFocus = true;
                       widget.onChanged(_serialize());
                     },
                     onChanged: (id, w, h, r) {
@@ -1029,7 +1202,12 @@ class NotePageEditorState extends State<NotePageEditor> {
                     },
                     onDragY: (id, dy) => _handleImageDrag(id, dy),
                     onDragEnd: () => _imgReorderAccum = 0.0,
-                    onPointerDown: () => _suppressNextDeselect = true,
+                    onPointerDown: () {
+                      _suppressNextDeselect = true;
+                      // The editor must not treat this touch as a tap in the text (that opens the keyboard).
+                      _focusNode.canRequestFocus = false;
+                      _hideKeyboard();
+                    },
                   ),
                 ],
                 padding: const EdgeInsets.fromLTRB(20, 8, 20, 200),
@@ -1085,6 +1263,56 @@ class NotePageEditorState extends State<NotePageEditor> {
 // ─────────────────────────────────────────────────────────────────────────────
 // Image embed builder for flutter_quill
 // ─────────────────────────────────────────────────────────────────────────────
+
+class _VoiceEmbedBuilder extends EmbedBuilder {
+  final Map<String, Map<String, dynamic>> voices;
+  final VoiceStore? store;
+  final VoicePlayback playback;
+  final void Function(String id, String label) onRename;
+  final void Function(String id) onDelete;
+  final void Function(String id, Offset globalPoint)? onDrop;
+  final Future<bool> Function(String id, String mime)? onDownload;
+
+  /// A touch landed on a recording: the editor must not treat it as a tap in the text (that opens the keyboard).
+  final VoidCallback? onPointerDown;
+
+  _VoiceEmbedBuilder({
+    required this.voices,
+    required this.store,
+    required this.playback,
+    required this.onRename,
+    required this.onDelete,
+    this.onDrop,
+    this.onDownload,
+    this.onPointerDown,
+  });
+
+  @override
+  String get key => 'voice';
+
+  @override
+  bool get expanded => false;
+
+  @override
+  Widget build(BuildContext context, EmbedContext embedContext) {
+    final id = embedContext.node.value.data as String;
+    return Listener(
+      behavior: HitTestBehavior.opaque,
+      onPointerDown: (_) => onPointerDown?.call(),
+      child: VoiceTile(
+      key: ValueKey('voice-$id'),
+      id: id,
+      meta: voices[id] ?? const {'label': 'Voice note', 'duration': 0, 'mime': 'audio/mp4'},
+      store: store,
+      playback: playback,
+      onRename: (label) => onRename(id, label),
+      onDelete: () => onDelete(id),
+      onDrop: onDrop == null ? null : (point) => onDrop!(id, point),
+      onDownload: onDownload,
+      ),
+    );
+  }
+}
 
 class _ImageEmbedBuilder extends EmbedBuilder {
   final Map<String, Map<String, dynamic>> images;
@@ -1181,6 +1409,21 @@ class _InlineImageBlockState extends State<_InlineImageBlock> {
   // accounts for the ancestor Transform.rotate when computing the center.
   final _imgKey = GlobalKey();
 
+  // The picture is decoded once (not on every rebuild, which happens on every touch move while resizing).
+  ImageProvider? _provider;
+  String? _providerData;
+
+  /// Room around the picture while it is selected, so the resize handles and the delete button that stick
+  /// out of it are still inside the block and can be touched.
+  static const double _margin = 20;
+
+  void _loadProvider() {
+    if (_providerData == widget.data) return;
+    _providerData = widget.data;
+    final bytes = _decodeImg(widget.data);
+    _provider = bytes == null ? null : ResizeImage.resizeIfNeeded(1600, null, MemoryImage(bytes));
+  }
+
   // True while any handle (resize or rotate) owns a pointer.
   // Prevents the outer body-drag GestureDetector from stealing the gesture.
   bool _handleActive = false;
@@ -1202,6 +1445,7 @@ class _InlineImageBlockState extends State<_InlineImageBlock> {
     _w = widget.width;
     _h = widget.height;
     _r = widget.rotation;
+    _loadProvider();
   }
 
   @override
@@ -1210,13 +1454,19 @@ class _InlineImageBlockState extends State<_InlineImageBlock> {
     _w = widget.width;
     _h = widget.height;
     _r = widget.rotation;
+    _loadProvider();
   }
 
   // ── Rotated bounding box ──────────────────────────────────────────────────
 
   // Width / height of the axis-aligned box that fully contains the rotated image.
-  double get _rotW => _w * math.cos(_r).abs() + _h * math.sin(_r).abs();
-  double get _rotH => _w * math.sin(_r).abs() + _h * math.cos(_r).abs();
+  // The box that holds the picture is [_margin] larger on every side while the picture is selected, so the
+  // handles that stick out of the picture are inside it (a touch outside a box never reaches its children).
+  double get _pad => widget.selected ? _margin : 0.0;
+  double get _padW => _w + 2 * _pad;
+  double get _padH => _h + 2 * _pad;
+  double get _rotW => _padW * math.cos(_r).abs() + _padH * math.sin(_r).abs();
+  double get _rotH => _padW * math.sin(_r).abs() + _padH * math.cos(_r).abs();
 
   // Convert screen-space delta → image-local-space delta
   Offset _imgDelta(Offset d) {
@@ -1295,17 +1545,18 @@ class _InlineImageBlockState extends State<_InlineImageBlock> {
 
   Widget _resizeHandle(_HandleType type) {
     final half = _hTarget / 2;
+    final m = _pad;
     double? left, right, top, bottom;
     void Function(PointerMoveEvent) onMove;
 
-    if      (type == _HandleType.tl) { left = -half;       top    = -half;           onMove = (e) => _onCornerMove(e, -1); }
-    else if (type == _HandleType.t)  { left = _w/2 - half; top    = -half;           onMove = (e) => _onEdgeHMove(e, -1); }
-    else if (type == _HandleType.tr) { right = -half;       top    = -half;           onMove = (e) => _onCornerMove(e,  1); }
-    else if (type == _HandleType.r)  { right = -half;       top    = _h/2 - half;    onMove = (e) => _onEdgeWMove(e,  1); }
-    else if (type == _HandleType.br) { right = -half;       bottom = -half;           onMove = (e) => _onCornerMove(e,  1); }
-    else if (type == _HandleType.b)  { left = _w/2 - half; bottom = -half;           onMove = (e) => _onEdgeHMove(e,  1); }
-    else if (type == _HandleType.bl) { left = -half;       bottom = -half;           onMove = (e) => _onCornerMove(e, -1); }
-    else                             { left = -half;       top    = _h/2 - half;    onMove = (e) => _onEdgeWMove(e, -1); } // l
+    if      (type == _HandleType.tl) { left = m - half;           top    = m - half;           onMove = (e) => _onCornerMove(e, -1); }
+    else if (type == _HandleType.t)  { left = m + _w/2 - half;    top    = m - half;           onMove = (e) => _onEdgeHMove(e, -1); }
+    else if (type == _HandleType.tr) { right = m - half;          top    = m - half;           onMove = (e) => _onCornerMove(e,  1); }
+    else if (type == _HandleType.r)  { right = m - half;          top    = m + _h/2 - half;    onMove = (e) => _onEdgeWMove(e,  1); }
+    else if (type == _HandleType.br) { right = m - half;          bottom = m - half;           onMove = (e) => _onCornerMove(e,  1); }
+    else if (type == _HandleType.b)  { left = m + _w/2 - half;    bottom = m - half;           onMove = (e) => _onEdgeHMove(e,  1); }
+    else if (type == _HandleType.bl) { left = m - half;           bottom = m - half;           onMove = (e) => _onCornerMove(e, -1); }
+    else                             { left = m - half;           top    = m + _h/2 - half;    onMove = (e) => _onEdgeWMove(e, -1); } // l
 
     return Positioned(
       left: left, right: right, top: top, bottom: bottom,
@@ -1369,14 +1620,14 @@ class _InlineImageBlockState extends State<_InlineImageBlock> {
 
   @override
   Widget build(BuildContext context) {
-    final bytes   = _decodeImg(widget.data);
     final sel     = widget.selected;
+    final m       = sel ? _margin : 0.0;
     final canDrag = sel && widget.onDragY != null;
     final rw = _rotW;
     final rh = _rotH;
 
-    final imageWidget = bytes != null
-        ? Image.memory(bytes, fit: BoxFit.fill, width: _w, height: _h, gaplessPlayback: true)
+    final imageWidget = _provider != null
+        ? Image(image: _provider!, fit: BoxFit.fill, width: _w, height: _h, gaplessPlayback: true)
         : Container(
             color: Colors.grey.shade200,
             child: const Center(child: Icon(Icons.broken_image, color: Colors.grey)),
@@ -1385,18 +1636,29 @@ class _InlineImageBlockState extends State<_InlineImageBlock> {
     // Inner box (actual _w x _h): holds image, selection border, resize handles.
     // Transform.rotate wraps this, so all handles are in image-local space.
     final innerBox = SizedBox(
-      key: _imgKey,
-      width: _w,
-      height: _h,
+      width: _padW,
+      height: _padH,
       child: Stack(
         clipBehavior: Clip.none,
         children: [
-          Positioned.fill(child: imageWidget),
-          if (sel) Positioned.fill(
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                border: Border.all(color: Colors.blue.shade400, width: 2),
-                borderRadius: BorderRadius.circular(3),
+          Positioned(
+            left: m,
+            top: m,
+            width: _w,
+            height: _h,
+            child: SizedBox(
+              key: _imgKey,
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  imageWidget,
+                  if (sel) DecoratedBox(
+                    decoration: BoxDecoration(
+                      border: Border.all(color: Colors.blue.shade400, width: 2),
+                      borderRadius: BorderRadius.circular(3),
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
@@ -1427,8 +1689,9 @@ class _InlineImageBlockState extends State<_InlineImageBlock> {
         children: [
           Transform.rotate(angle: _r, alignment: Alignment.center, child: innerBox),
           if (sel) Positioned(
-            top: -10, right: -10,
+            top: m - 11, right: m - 11,
             child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
               onTap: widget.onDelete,
               child: Container(
                 width: 22, height: 22,

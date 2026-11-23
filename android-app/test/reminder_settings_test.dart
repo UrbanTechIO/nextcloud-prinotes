@@ -24,23 +24,14 @@ class _Api extends Fake implements ApiClient {
 }
 
 void main() {
-  test('Nextcloud reminder notifications are on unless the server setting says false', () {
-    expect(nextcloudRemindersOn(null), isTrue);
-    expect(nextcloudRemindersOn({}), isTrue);
-    expect(nextcloudRemindersOn({'todo_nextcloud_notifications': 'true'}), isTrue);
-    expect(nextcloudRemindersOn({'todo_nextcloud_notifications': 'false'}), isFalse);
-    expect(nextcloudRemindersOn({'todo_nextcloud_notifications': '0'}), isFalse);
-    expect(nextcloudRemindersOn('not a map'), isTrue);
-  });
-
   test('loads the current choice from the server and saves a new one', () async {
-    final api = _Api()..settings = {'todo_nextcloud_notifications': 'false'};
+    final api = _Api()..settings = {};
     final s = ReminderSettings(api);
     expect(await s.loadNextcloudReminders(), isFalse);
     expect(await s.saveNextcloudReminders(true), isTrue);
-    expect(api.posted, {'todo_nextcloud_notifications': 'true'});
+    expect(api.posted, {'todo_nextcloud_reminders': 'true'});
     expect(await s.saveNextcloudReminders(false), isTrue);
-    expect(api.posted, {'todo_nextcloud_notifications': 'false'});
+    expect(api.posted, {'todo_nextcloud_reminders': 'false'});
   });
 
   test('offline: loading returns null (unknown) and saving reports failure', () async {

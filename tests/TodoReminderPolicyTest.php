@@ -15,13 +15,13 @@ function check(string $name, mixed $actual, mixed $expected): void {
     }
 }
 
-check('no setting yet: keep sending (web-only users)', TodoReminderPolicy::sendNextcloudNotification(null), true);
-check('explicit true', TodoReminderPolicy::sendNextcloudNotification('true'), true);
-check('explicit false: the Android app handles reminders', TodoReminderPolicy::sendNextcloudNotification('false'), false);
-check('0 means off', TodoReminderPolicy::sendNextcloudNotification('0'), false);
-check('FALSE any case', TodoReminderPolicy::sendNextcloudNotification('FALSE'), false);
-check('garbage keeps sending', TodoReminderPolicy::sendNextcloudNotification('maybe'), true);
-check('empty string keeps sending', TodoReminderPolicy::sendNextcloudNotification(''), true);
+check('no setting yet: PriNotes only', TodoReminderPolicy::sendNextcloudNotification(null), false);
+check('empty string: PriNotes only', TodoReminderPolicy::sendNextcloudNotification(''), false);
+check('explicit false', TodoReminderPolicy::sendNextcloudNotification('false'), false);
+check('garbage is off', TodoReminderPolicy::sendNextcloudNotification('maybe'), false);
+check('explicit true: the user asked for the extra notification', TodoReminderPolicy::sendNextcloudNotification('true'), true);
+check('1 means on', TodoReminderPolicy::sendNextcloudNotification('1'), true);
+check('TRUE any case', TodoReminderPolicy::sendNextcloudNotification('TRUE'), true);
 
 echo $failures === 0 ? "OK\n" : "$failures failure(s)\n";
 exit($failures === 0 ? 0 : 1);

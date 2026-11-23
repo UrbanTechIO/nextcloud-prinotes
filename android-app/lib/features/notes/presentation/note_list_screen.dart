@@ -95,6 +95,7 @@ class _NoteListScreenState extends ConsumerState<NoteListScreen>
     final filter = ref.watch(noteFilterProvider);
     final notebooks = ref.watch(notebooksProvider).valueOrNull ?? [];
     final tags = ref.watch(tagsProvider).valueOrNull ?? [];
+    ref.watch(trashCountProvider); // loaded now, so the side menu has it the moment it opens
     final isTrashView = filter.trashed;
     final glass = ref.watch(glassProvider);
     final topInset = GlassAppBar.bodyTopInset(context, glass);

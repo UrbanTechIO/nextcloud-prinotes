@@ -414,7 +414,7 @@ void drawerThemeTests() {
     await pumpDrawerBody(tester, const GlassSettings(style: ThemeStyle.frosted, headerOpacity: 0.3),
         const GlassDrawerBody(child: SizedBox.expand()));
     final blur = tester.widget<BackdropFilter>(find.byType(BackdropFilter));
-    expect(blur.filter, ImageFilter.blur(sigmaX: frostedBlurSigma, sigmaY: frostedBlurSigma));
+    expect(blur.filter, ImageFilter.blur(sigmaX: frostedDrawerBlurSigma, sigmaY: frostedDrawerBlurSigma)); // lighter blur: the big sliding pane must stay smooth
     final d = tester.widgetList<DecoratedBox>(find.byType(DecoratedBox)).map((b) => b.decoration).whereType<BoxDecoration>().firstWhere((x) => x.gradient != null);
     expect(d.color, const Color(0xFF1E293B).withOpacity(0.12 + 0.88 * 0.3));
   });

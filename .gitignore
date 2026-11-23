@@ -32,3 +32,6 @@ Thumbs.db
 .idea/
 .vscode/
 *.swp
+
+# Release APKs are uploaded to the GitHub release only (too big for the repository)
+releases/*.apk

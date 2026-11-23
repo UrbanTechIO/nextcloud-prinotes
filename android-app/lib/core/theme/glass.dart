@@ -154,6 +154,9 @@ MediaQueryData trimTopInset(MediaQueryData mq, double max) => mq.copyWith(
 /// bar and the add button so the two always look the same and follow the same slider.
 const frostedBlurSigma = 18.0;
 
+/// The side menu is large and slides in, so its blur is lighter than the header's (less to compute per frame).
+const frostedDrawerBlurSigma = 10.0;
+
 BoxDecoration frostedPaneDecoration(double headerOpacity, {Border? border, BorderRadius? radius}) => BoxDecoration(
       borderRadius: radius,
       color: const Color(0xFF1E293B).withOpacity(0.12 + 0.88 * headerOpacity),
@@ -423,13 +426,14 @@ class GlassDrawerBody extends ConsumerWidget {
     return ClipRRect(
       borderRadius: const BorderRadius.horizontal(right: Radius.circular(24)),
       child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: frostedBlurSigma, sigmaY: frostedBlurSigma),
+        filter: ImageFilter.blur(sigmaX: frostedDrawerBlurSigma, sigmaY: frostedDrawerBlurSigma),
         child: DecoratedBox(
           decoration: frostedPaneDecoration(
             s.headerOpacity,
             border: Border(right: BorderSide(color: Colors.white.withOpacity(0.28))),
           ),
-          child: child,
+          // The menu's own content is drawn once and reused while the pane slides in.
+          child: RepaintBoundary(child: child),
         ),
       ),
     );

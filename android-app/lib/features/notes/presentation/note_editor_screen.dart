@@ -11,6 +11,14 @@ import 'auto_save_scheduler.dart';
 import 'widgets/note_page_editor.dart';
 import 'widgets/note_lock_screen.dart';
 import 'widgets/note_options_sheet.dart';
+import '../../scan/scan_panel.dart';
+import '../../voice/server_voice_api.dart';
+import '../../voice/voice_content.dart';
+import '../../voice/voice_recorder.dart';
+import '../../voice/voice_store.dart';
+import 'package:uuid/uuid.dart';
+import '../../../data/remote/api_client.dart';
+import '../data/image_size.dart';
 
 class NoteEditorScreen extends ConsumerStatefulWidget {
   final int? noteId;
@@ -27,6 +35,7 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> with Widget
   final _titleCtrl = TextEditingController();
   Map<String, dynamic> _content = {};
   final _editorKey = GlobalKey<NotePageEditorState>();
+  bool _scanning = false;
   /// Saves at most once per minute while editing, and right away when leaving the editor or the app.
   static const _saveInterval = Duration(seconds: 60);
   late final AutoSaveScheduler _saver = AutoSaveScheduler(interval: _saveInterval, save: _persist, snapshot: _snapshot);
@@ -115,6 +124,8 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> with Widget
         if (!didPop) _leave();
       },
       child: Scaffold(
+      // While scanning the keyboard must stay away: it would squeeze the note and cover the camera.
+      resizeToAvoidBottomInset: !_scanning,
       backgroundColor: noteColor?.withOpacity(0.08) ?? Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(
         backgroundColor: noteColor?.withOpacity(0.12) ?? Theme.of(context).appBarTheme.backgroundColor,
@@ -154,7 +165,9 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> with Widget
               // ── Title ──────────────────────────────────────────────────────
               Padding(
                 padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
-                child: TextField(
+                child: ExcludeFocus(
+                  excluding: _scanning,
+                  child: TextField(
                   controller: _titleCtrl,
                   textDirection: TextDirection.ltr,
                   style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w700),
@@ -169,19 +182,34 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> with Widget
                   ),
                   onChanged: (_) => _markChanged(),
                 ),
+                ),
               ),
 
               // ── Samsung Notes–style page editor ────────────────────────────
               Expanded(
-                child: NotePageEditor(
-                  key: _editorKey,
-                  content: _content,
-                  onChanged: (content) {
-                    _content = content;
-                    _markChanged();
-                  },
+                child: ExcludeFocus(
+                  excluding: _scanning,
+                  child: NotePageEditor(
+                    key: _editorKey,
+                    content: _content,
+                    onVoiceDownload: _downloadVoice,
+                    onChanged: (content) {
+                      _content = content;
+                      _markChanged();
+                    },
+                  ),
                 ),
               ),
+
+              // ── Scan: the camera takes the bottom half ─────────────────────
+              if (_scanning)
+                SizedBox(
+                  height: MediaQuery.sizeOf(context).height * 0.45,
+                  child: ScanPanel(
+                    onText: (t) => _editorKey.currentState?.insertText(t),
+                    onClose: () => setState(() => _scanning = false),
+                  ),
+                ),
             ],
           ),
 
@@ -259,12 +287,12 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> with Widget
               _attachRow([
                 _AttachOption(Icons.photo_library_outlined, 'Image',       () { Navigator.pop(ctx); _pickImage(ImageSource.gallery); }),
                 _AttachOption(Icons.camera_alt_outlined,    'Camera',      () { Navigator.pop(ctx); _pickImage(ImageSource.camera);  }),
-                _AttachOption(Icons.mic_outlined,           'Voice',       () { Navigator.pop(ctx); _comingSoon('Voice recording');   }),
+                _AttachOption(Icons.mic_outlined,           'Voice',       () { Navigator.pop(ctx); _addVoice(); }),
               ]),
               const SizedBox(height: 8),
               _attachRow([
                 _AttachOption(Icons.picture_as_pdf_outlined,'PDF',         () { Navigator.pop(ctx); _comingSoon('PDF viewer');        }),
-                _AttachOption(Icons.document_scanner_outlined,'Scan',      () { Navigator.pop(ctx); _comingSoon('Document scan');     }),
+                _AttachOption(Icons.document_scanner_outlined,'Scan',      () { Navigator.pop(ctx); _startScan(); }),
                 _AttachOption(Icons.table_chart_outlined,   'Table',       () { Navigator.pop(ctx); _comingSoon('Table');             }),
               ]),
             ],
@@ -302,12 +330,44 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> with Widget
 
   Future<void> _pickImage(ImageSource source) async {
     final picker = ImagePicker();
-    final file = await picker.pickImage(source: source, imageQuality: 80);
+    // A phone photo is 12 megapixels; a note needs far less. Shrinking it here keeps the note small and quick.
+    final file = await picker.pickImage(source: source, imageQuality: 80, maxWidth: 1600, maxHeight: 1600);
     if (file == null || !mounted) return;
     final bytes = await file.readAsBytes();
     final dataUrl = 'data:${file.mimeType ?? 'image/jpeg'};base64,${base64Encode(bytes)}';
-    _editorKey.currentState?.addImage(dataUrl);
+    _editorKey.currentState?.addImage(dataUrl, aspect: await imageAspect(bytes));
     _markChanged();
+  }
+
+  /// Records a voice note and adds it to the note at the cursor.
+  Future<void> _addVoice() async {
+    FocusManager.instance.primaryFocus?.unfocus();
+    final rec = await showVoiceRecorder(context);
+    if (rec == null || !mounted) return;
+    final id = const Uuid().v4();
+    final store = await VoiceStore.shared();
+    await store.adopt(rec.file, id, rec.mime);
+    _editorKey.currentState?.addVoice(id, newVoiceMeta(durationMs: rec.durationMs, mime: rec.mime, wave: rec.wave));
+    _markChanged();
+  }
+
+  /// A recording this phone does not have yet: fetch it from the server. True when it arrived.
+  Future<bool> _downloadVoice(String id, String mime) async {
+    try {
+      final bytes = await ServerVoiceApi(ref.read(apiClientProvider)).download(id);
+      if (bytes == null) return false;
+      await (await VoiceStore.shared()).saveDownloaded(id, mime, bytes);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Opens the camera on the bottom half of the screen to scan text into the note.
+  void _startScan() {
+    FocusManager.instance.primaryFocus?.unfocus();
+    _editorKey.currentState?.moveCursorToEnd(); // scanned text is added at the end of the note
+    setState(() => _scanning = true);
   }
 
   void _comingSoon(String feature) {

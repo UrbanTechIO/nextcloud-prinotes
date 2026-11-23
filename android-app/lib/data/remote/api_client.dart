@@ -64,6 +64,27 @@ class ApiClient {
     return _unwrap(response.data);
   }
 
+  /// Sends a file (multipart form). Throws on any failure.
+  Future<void> postForm(String path, FormData data) async {
+    final dio = await _getDio();
+    await dio.post(path, data: data, options: Options(contentType: Headers.multipartFormDataContentType));
+  }
+
+  /// A file's bytes, or null when the server says it does not exist.
+  Future<List<int>?> getBytes(String path) async {
+    final dio = await _getDio();
+    try {
+      final r = await dio.get<List<int>>(path, options: Options(responseType: ResponseType.bytes, headers: {'Accept': '*/*'}));
+      // An error page in place of the file (the server answers some errors with a 200 and an XML or JSON body).
+      final type = r.headers.value('content-type') ?? '';
+      if (type.contains('xml') || type.contains('json') || type.contains('html')) return null;
+      return r.data;
+    } on DioException catch (e) {
+      if (e.response?.statusCode == 404) return null;
+      rethrow;
+    }
+  }
+
   Future<void> delete(String path, {Map<String, dynamic>? params}) async {
     final dio = await _getDio();
     await dio.delete(path, queryParameters: params);

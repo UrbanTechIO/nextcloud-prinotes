@@ -2,6 +2,37 @@
 
 All notable changes to PriNotes are documented here.
 
+## [1.2.8] – 2026-11-23
+
+Web app and Android app. Needs the Nextcloud app update (new recording storage and a changed reminder setting).
+
+### Added
+- **Voice notes.** Attach, then Voice, records a voice note and puts it in the note at the cursor. Add as many as you like, between your text.
+  - The recorder shows live sound waves while you speak, with Pause, Cancel and Add to note. It stops by itself after 30 minutes.
+  - In the note a recording is a player: play and pause, its sound waves with the played part coloured (tap or drag the waves to jump), a name you can change (tap it), its length, and a remove button. Only one plays at a time.
+  - **Hold a recording and drag it** up or down to move it between lines (Android and web). On the web a line shows where it will land.
+  - Works offline: recordings are kept on the phone and upload when there is a connection. Recordings made elsewhere download on their own, or with the Download button.
+  - The audio is stored as files in your own Nextcloud Files, in `PriNotes/voice`. A daily job removes recordings no note uses any more (only ones older than two days).
+  - **Web:** the same players, and a microphone button on the toolbar records in the browser.
+  - Recordings made before the sound waves existed show a flat row of bars.
+- **Scan text with the camera (Android).** Attach, then Scan, turns the bottom half of the screen into a camera.
+  - **Live:** point at printed text and each new line floats up into the note. A line is added only after it was read the same way three times in a row, and only text inside the frame is read.
+  - **Snap:** take one photo, check or edit the text it found, then Insert. The photo is not kept.
+  - Reads Latin text only (no Arabic). Works offline.
+
+### Changed
+- **To-Do reminders come from PriNotes only.** The extra Nextcloud notification is now off unless you turn it on (Settings, Reminders, *Also notify through Nextcloud*). Other Nextcloud notifications are not affected. The server setting was renamed (`todo_nextcloud_reminders`), so an old saved choice no longer counts.
+- A reminder set on the web or on another phone now gets its alarm on the phone right after the next sync, not up to 15 minutes later.
+- Pictures from the camera and gallery are shrunk to at most 1600 pixels when added, so notes stay small and quick.
+- The side menu in Frosted Glass is lighter to draw, so it opens smoother.
+
+### Fixed
+- Portrait pictures were stretched into a wide frame. They keep their own shape now.
+- Pictures: the resize handles and the red delete button only worked on their inner half, and touching a picture opened the keyboard. Both work properly now, and a selected picture stays selected until you tap outside.
+- Pictures were slow to appear because the full photo was decoded again on every touch.
+- The side menu could lag right after opening the app.
+- Web: playing a recording failed with "Could not play" because Nextcloud blocks sound from temporary browser addresses. It now plays straight from the server.
+
 ## [1.2.7] – 2026-11-19
 
 Web app and Android app.

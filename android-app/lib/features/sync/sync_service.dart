@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:developer' as dev;
 import 'package:drift/drift.dart';
@@ -6,6 +7,10 @@ import '../../core/constants/app_constants.dart';
 import '../../data/local/database.dart';
 import '../../data/remote/api_client.dart';
 import '../todo/data/todo_sync.dart';
+import '../todo/reminders/todo_reminders.dart';
+import '../voice/server_voice_api.dart';
+import '../voice/voice_store.dart';
+import '../voice/voice_sync.dart';
 
 class SyncService {
   final AppDatabase db;
@@ -15,7 +20,7 @@ class SyncService {
   SyncService({required this.db, required this.api});
 
   /// Returns the number of stale notes removed from local DB during the pull cleanup.
-  Future<int> sync() async {
+  Future<int> sync({bool waitForVoices = false}) async {
     // Pull FIRST so server changes (web edits) are applied before we push.
     // With push-first the push would overwrite newer web content with stale
     // mobile content; the subsequent pull would then get back the mobile
@@ -40,7 +45,34 @@ class SyncService {
     } catch (e) {
       dev.log('[Sync] To-Do push error: $e', name: 'SyncService');
     }
+    // Voice recordings go up and come down after the notes that use them are in step. Audio can be big, so it
+    // runs on its own and never holds up the notes (the background sync waits for it, as the process would end).
+    try {
+      // Only notes that carry recordings matter here (trashed and hidden ones included).
+      final withVoices = await (db.select(db.notes)..where((n) => n.content.like('%"voices"%'))).get();
+      final voices = _syncVoices([for (final n in withVoices) n.content]);
+      if (waitForVoices) {
+        await voices;
+      } else {
+        unawaited(voices);
+      }
+    } catch (e) {
+      dev.log('[Sync] Voice error: $e', name: 'SyncService');
+    }
+    // A reminder set on the web or on another phone must get its alarm here right away, not up to
+    // 15 minutes later when the background sync runs.
+    try {
+      await TodoReminders.rescheduleAllIfChanged(await db.select(db.todos).get());
+    } catch (_) {}
     return cleaned;
+  }
+
+  Future<void> _syncVoices(List<String> contents) async {
+    try {
+      await VoiceSync(await VoiceStore.shared(), ServerVoiceApi(api)).run(notes: contents);
+    } catch (e) {
+      dev.log('[Sync] Voice error: $e', name: 'SyncService');
+    }
   }
 
   /// Push any tags that were created on mobile (no remoteId yet) so they

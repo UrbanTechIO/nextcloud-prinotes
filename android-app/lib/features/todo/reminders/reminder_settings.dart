@@ -1,12 +1,13 @@
 import '../../../data/remote/api_client.dart';
 
-const _key = 'todo_nextcloud_notifications';
+const _key = 'todo_nextcloud_reminders';
 
-/// True unless the server setting says the Nextcloud notification for To-Do reminders is switched off.
+/// False unless the user has switched the extra Nextcloud notification for To-Do reminders on.
+/// To-Do reminders come from PriNotes itself; Nextcloud only adds its own when asked to.
 bool nextcloudRemindersOn(dynamic settings) {
-  if (settings is! Map) return true;
+  if (settings is! Map) return false;
   final v = '${settings[_key] ?? ''}'.trim().toLowerCase();
-  return v != 'false' && v != '0';
+  return v == 'true' || v == '1';
 }
 
 /// The per-user server setting behind "also send To-Do reminders through Nextcloud notifications".
